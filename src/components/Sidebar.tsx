@@ -6,11 +6,8 @@ export function Sidebar() {
     <aside className="w-[260px] border-r border-gray-200 h-screen flex flex-col bg-white overflow-y-auto shrink-0">
       {/* Header */}
       <div className="p-4 flex items-center justify-between pb-3">
-        <div className="flex items-center space-x-2">
-          <div className="w-5 h-5 rounded-full bg-orange-500 flex items-center justify-center shrink-0" >
-               <span className="text-[10px] text-white font-bold">당</span>
-          </div>
-          <span className="font-bold text-gray-800 text-[15px]">당근서비스 워크</span>
+        <div className="flex items-center">
+          <img src="/logo.png" alt="당근서비스 워크" className="h-7 w-auto" />
         </div>
         <ChevronLeft className="w-4 h-4 text-gray-400 cursor-pointer hover:text-gray-600" />
       </div>
