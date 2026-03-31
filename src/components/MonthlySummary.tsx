@@ -20,29 +20,29 @@ export function MonthlySummary({ data, yearMonth }: MonthlySummaryProps) {
         <span className="text-gray-400 text-[13.5px] font-medium">{yearMonth}</span>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 xl:gap-6">
         {/* 근로 영역 */}
-        <div className="bg-gray-50 rounded-lg p-5 border border-gray-100">
-           <div className="flex items-center mb-5 text-gray-800 font-bold space-x-1.5 text-sm tracking-tight">
+        <div className="bg-gray-50 rounded-lg p-4 xl:p-5 border border-gray-100 flex flex-col justify-between">
+           <div className="flex items-center mb-4 text-gray-800 font-extrabold space-x-1.5 text-xs tracking-tight">
              <span>⏱</span>
              <span>근무</span>
            </div>
-           <div className="space-y-2.5">
-             <div className="flex justify-between items-center text-[13.5px]">
-               <span className="text-gray-500 font-medium">근로시간</span>
-               <span className="font-bold text-gray-800 tracking-tight">{totalWork.toFixed(1)}h</span>
+           <div className="space-y-2">
+             <div className="flex justify-between items-center text-[13px]">
+               <span className="text-gray-400 font-bold">근로시간</span>
+               <span className="font-black text-gray-800 tracking-tight">{totalWork.toFixed(1)}h</span>
              </div>
-             <div className="flex justify-between items-center text-[13.5px]">
-               <span className="text-gray-500 font-medium">연장근로</span>
-               <span className="font-bold text-gray-800 tracking-tight">{totalOW.toFixed(1)}h</span>
+             <div className="flex justify-between items-center text-[13px]">
+               <span className="text-gray-400 font-bold">연장근로</span>
+               <span className="font-black text-gray-800 tracking-tight">{totalOW.toFixed(1)}h</span>
              </div>
-             <div className="flex justify-between items-center text-[13.5px]">
-               <span className="text-gray-500 font-medium">야간근로</span>
-               <span className="font-bold text-gray-800 tracking-tight">{totalNW.toFixed(1)}h</span>
+             <div className="flex justify-between items-center text-[13px]">
+               <span className="text-gray-400 font-bold">야간근로</span>
+               <span className="font-black text-gray-800 tracking-tight">{totalNW.toFixed(1)}h</span>
              </div>
-             <div className="flex justify-between items-center text-[13.5px]">
-               <span className="text-gray-500 font-medium">휴일근로</span>
-               <span className="font-bold text-gray-800 tracking-tight">{totalHW.toFixed(1)}h</span>
+             <div className="flex justify-between items-center text-[13px]">
+               <span className="text-gray-400 font-bold">휴일근로</span>
+               <span className="font-black text-gray-800 tracking-tight">{totalHW.toFixed(1)}h</span>
              </div>
            </div>
         </div>

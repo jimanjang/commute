@@ -30,16 +30,18 @@ export function DailyDetail({ date, record }: DailyDetailProps) {
         </div>
       </div>
 
-      <div className="bg-gray-50 rounded-lg p-5 flex items-center justify-between mb-6 border border-gray-100">
+      <div className="bg-gray-50 rounded-lg p-5 flex flex-col space-y-3 mb-6 border border-gray-100 items-center justify-center">
         <div className="flex items-center space-x-3 text-gray-800">
-          <div className="bg-gray-200 p-2 rounded-full">
-            <Clock className="w-4 h-4 text-gray-600" />
+          <div className="bg-white p-2.5 rounded-xl shadow-sm border border-gray-100">
+            <Clock className="w-4.5 h-4.5 text-orange-500" />
           </div>
-          <span className="font-bold text-[15px]">출근: {record?.WSTime ? record.WSTime.substring(0, 5) : "--:--"}</span>
+          <div className="flex flex-col">
+            <span className="text-[11px] font-black text-gray-400 uppercase tracking-tighter">Daily Attendance</span>
+            <span className="font-black text-[17px] tracking-tight">
+              {record?.WSTime ? record.WSTime.substring(0, 5) : "--:--"} ~ {record?.WCTime ? record.WCTime.substring(0, 5) : "진행중"}
+            </span>
+          </div>
         </div>
-        <button className="bg-[#313645] text-white px-5 py-2.5 rounded-lg text-sm font-bold hover:bg-slate-800 transition-colors">
-          퇴근하기
-        </button>
       </div>
 
       <div className="flex-1">
