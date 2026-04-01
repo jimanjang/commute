@@ -16,10 +16,12 @@ import {
   Search,
   Filter,
   MoreHorizontal,
-  Calendar
+  Calendar,
+  Edit2
 } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
+import { EditAttendanceModal } from "@/components/EditAttendanceModal";
 
 function StatCard({ title, value, icon: Icon, trend, color }: any) {
   return (
@@ -55,36 +57,38 @@ function DashboardContent() {
     pendingApproval: 0
   });
   const [isLoading, setIsLoading] = useState(true);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editUser, setEditUser] = useState<any>(null);
   
   const searchParams = useSearchParams();
   const userName = searchParams.get("name") || "전체";
 
-  useEffect(() => {
-    async function fetchData() {
-      setIsLoading(true);
-      try {
-        if (userName === "전체") {
-          const res = await fetch(`/api/users`);
-          if (res.ok) {
-            const data = await res.json();
-            setAllUsersData(data.users);
-            setSummaryStats(data.stats);
-          }
-        } else {
-          const yearMonth = format(currentViewMonth, "yyyy-MM");
-          const res = await fetch(`/api/attendance?name=${encodeURIComponent(userName)}&yearMonth=${yearMonth}`);
-          if (res.ok) {
-            const json = await res.json();
-            setData(json);
-          }
+  const fetchData = async () => {
+    setIsLoading(true);
+    try {
+      if (userName === "전체") {
+        const res = await fetch(`/api/users`);
+        if (res.ok) {
+          const data = await res.json();
+          setAllUsersData(data.users);
+          setSummaryStats(data.stats);
         }
-      } catch (err) {
-        console.error("Failed to fetch data:", err);
-      } finally {
-        setIsLoading(false);
+      } else {
+        const yearMonth = format(currentViewMonth, "yyyy-MM");
+        const res = await fetch(`/api/attendance?name=${encodeURIComponent(userName)}&yearMonth=${yearMonth}`);
+        if (res.ok) {
+          const json = await res.json();
+          setData(json);
+        }
       }
+    } catch (err) {
+      console.error("Failed to fetch data:", err);
+    } finally {
+      setIsLoading(false);
     }
+  };
 
+  useEffect(() => {
     fetchData();
   }, [userName, format(currentViewMonth, "yyyy-MM")]);
 
@@ -184,12 +188,25 @@ function DashboardContent() {
                       </span>
                     </td>
                     <td className="px-8 py-5 text-center">
-                      <Link 
-                        href={`/?name=${encodeURIComponent(user.name)}`}
-                        className="inline-flex items-center justify-center p-2.5 text-gray-300 hover:text-orange-500 hover:bg-white hover:shadow-md rounded-xl transition-all"
-                      >
-                         <Calendar className="w-5 h-5 text-gray-300 group-hover:text-orange-500" />
-                      </Link>
+                      <div className="flex items-center justify-center space-x-1">
+                        <Link 
+                          href={`/?name=${encodeURIComponent(user.name)}`}
+                          className="inline-flex items-center justify-center p-2.5 text-gray-300 hover:text-blue-500 hover:bg-blue-50/50 rounded-xl transition-all"
+                          title="상세 보기"
+                        >
+                          <Calendar className="w-5 h-5" />
+                        </Link>
+                        <button 
+                          onClick={() => {
+                            setEditUser(user);
+                            setIsEditModalOpen(true);
+                          }}
+                          className="inline-flex items-center justify-center p-2.5 text-gray-300 hover:text-orange-500 hover:bg-orange-50/50 rounded-xl transition-all"
+                          title="기록 수정 (MySQL)"
+                        >
+                          <Edit2 className="w-5 h-5" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -197,13 +214,23 @@ function DashboardContent() {
             </table>
           </div>
         </div>
+
+        {editUser && (
+          <EditAttendanceModal 
+            isOpen={isEditModalOpen} 
+            onClose={() => setIsEditModalOpen(false)}
+            user={editUser}
+            date={format(new Date(), "yyyy-MM-dd")} 
+            onSuccess={() => fetchData()}
+          />
+        )}
       </div>
     );
   }
 
   // Individual Member View (Existing View)
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-[1fr_300px] xl:grid-cols-[1fr_360px] gap-8 animate-in fade-in slide-in-from-right-4 duration-500">
+    <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] xl:grid-cols-[1fr_380px] gap-8 animate-in fade-in slide-in-from-right-4 duration-500">
       <div className="space-y-8">
         {/* Calendar View */}
         <div className="relative bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden p-2">

@@ -18,16 +18,6 @@ export function DailyDetail({ date, record }: DailyDetailProps) {
           <h2 className="text-[17px] font-bold text-gray-800 tracking-tight">{format(date, "yyyy년 MM월 dd일")}</h2>
           <p className="text-[13px] text-gray-500 mt-1">{format(date, "EEEE", { locale: ko })}</p>
         </div>
-        <div className="flex space-x-2">
-          <button className="flex items-center space-x-1.5 px-3 py-1.5 border border-gray-200 rounded-md text-[13px] font-semibold text-gray-600 hover:bg-gray-50 transition-colors">
-            <Clock className="w-3.5 h-3.5" />
-            <span>연장</span>
-          </button>
-          <button className="flex items-center space-x-1.5 px-3 py-1.5 border border-gray-200 rounded-md text-[13px] font-semibold text-gray-600 hover:bg-gray-50 transition-colors">
-            <Edit className="w-3.5 h-3.5" />
-            <span>보정</span>
-          </button>
-        </div>
       </div>
 
       <div className="bg-gray-50 rounded-lg p-5 flex flex-col space-y-3 mb-6 border border-gray-100 items-center justify-center">
@@ -37,7 +27,7 @@ export function DailyDetail({ date, record }: DailyDetailProps) {
           </div>
           <div className="flex flex-col">
             <span className="text-[11px] font-black text-gray-400 uppercase tracking-tighter">Daily Attendance</span>
-            <span className="font-black text-[17px] tracking-tight">
+            <span className="font-black text-[17px] tracking-tight whitespace-nowrap">
               {record?.WSTime ? record.WSTime.substring(0, 5) : "--:--"} ~ {record?.WCTime ? record.WCTime.substring(0, 5) : "진행중"}
             </span>
           </div>

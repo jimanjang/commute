@@ -48,9 +48,6 @@ export default function MembersPage() {
           </h1>
           <p className="text-sm text-gray-400 font-bold mt-1 ml-10">총 {users.length}명의 구성원이 등록되어 있습니다.</p>
         </div>
-        <button className="bg-orange-500 text-white px-5 py-2.5 rounded-2xl font-black text-[14px] shadow-lg shadow-orange-200 hover:bg-orange-600 transition-all hover:scale-105 active:scale-95">
-          + 구성원 추가
-        </button>
       </div>
 
       <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
@@ -140,7 +137,7 @@ export default function MembersPage() {
                     >
                       <Calendar className="w-5 h-5" />
                     </Link>
-                    <button className="p-2.5 text-gray-300 hover:text-gray-600 hover:bg-white hover:shadow-md rounded-xl transition-all ml-1">
+                    <button className="p-2.5 text-gray-300 hover:text-gray-600 hover:bg-white hover:shadow-md rounded-xl transition-all ml-1 opacity-0 pointer-events-none">
                       <MoreHorizontal className="w-5 h-5" />
                     </button>
                   </td>

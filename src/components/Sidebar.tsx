@@ -8,6 +8,7 @@ import {
   History, 
   BarChart3, 
   Settings, 
+  RefreshCw,
   MoreVertical,
   ChevronDown
 } from "lucide-react";
@@ -70,12 +71,20 @@ export function Sidebar() {
         </div>
 
         <div className="mt-8 pt-8 border-t border-gray-50">
-          <p className="px-3 mb-3 text-[11px] font-extrabold text-gray-400 tracking-widest uppercase">Settings</p>
+          <p className="px-3 mb-3 text-[11px] font-extrabold text-gray-400 tracking-widest uppercase">System Status</p>
           <ul className="space-y-1.5">
             <li>
-              <Link href="/admin/settings" className="flex items-center px-4 py-3 text-[14.5px] rounded-2xl text-gray-500 hover:bg-gray-50 hover:text-gray-900 transition-all group">
-                <Settings className="w-5 h-5 mr-3 text-gray-400 group-hover:text-gray-600" />
-                설정
+              <Link href="/admin/sync" className={cn(
+                "flex items-center px-4 py-3 text-[14.5px] rounded-2xl transition-all group",
+                pathname === "/admin/sync" 
+                  ? "bg-blue-50 text-blue-600 font-extrabold shadow-sm ring-1 ring-blue-100" 
+                  : "text-gray-500 hover:bg-gray-50 hover:text-gray-900"
+              )}>
+                <RefreshCw className={cn(
+                  "w-5 h-5 mr-3 transition-transform group-hover:rotate-180 duration-500",
+                  pathname === "/admin/sync" ? "text-blue-600" : "text-gray-400 group-hover:text-blue-600"
+                )} />
+                동기화 상태
               </Link>
             </li>
           </ul>
