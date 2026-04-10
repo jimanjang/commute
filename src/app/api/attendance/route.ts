@@ -47,20 +47,40 @@ export async function GET(request: Request) {
 
     const [rows] = await bigquery.query(options);
 
+    // Try to get fresh overrides from MySQL to immediately reflect changes
+    // before BigQuery syncs them via batch processes
+    let mysqlMap = new Map();
+    try {
+      // Import dynamically to avoid top level await/pool issues if this is purely a nextjs API
+      const pool = (await import("@/lib/mysql")).default;
+      const [mysqlRows]: any = await pool.query(
+        "SELECT WorkDate, WSTime, WCTime, ModifyUser, ModifyTime FROM t_secom_workhistory WHERE Name = ? AND WorkDate LIKE ?",
+        [nameParam.split(" ")[0] || "Laika", `${dbYearMonth}%`]
+      );
+      if (mysqlRows && mysqlRows.length > 0) {
+        for (const r of mysqlRows) {
+          mysqlMap.set(r.WorkDate, r);
+        }
+      }
+    } catch (dbErr) {
+      console.warn("MySQL overlay failed:", dbErr);
+    }
+
     // Transform Data For Frontend (Formatting)
     const formattedRows = rows.map(row => {
       // WorkDate: "20260318" -> "2026-03-18"
       const wd = row.WorkDate ? row.WorkDate.toString() : "";
       const formattedWorkDate = wd.length === 8 ? `${wd.substring(0,4)}-${wd.substring(4,6)}-${wd.substring(6,8)}` : "";
       
-      // WSTime: "20260318085300" -> "08:53:00"
-      let wst = row.WSTime ? row.WSTime.toString() : "";
-      if (wst.length === 14) wst = `${wst.substring(8,10)}:${wst.substring(10,12)}:${wst.substring(12,14)}`;
+      // Override with MySQL data if it exists (meaning the record was modified but BigQuery sync hasn't run yet)
+      const freshRow = mysqlMap.get(wd) || row;
+      
+      let wst = freshRow.WSTime ? freshRow.WSTime.toString() : "";
+      if (wst.length >= 14) wst = `${wst.substring(8,10)}:${wst.substring(10,12)}:${wst.substring(12,14)}`;
       else if (wst.length === 6) wst = `${wst.substring(0,2)}:${wst.substring(2,4)}:${wst.substring(4,6)}`;
       
-      // WCTime: "20260317190800" -> "19:08:00"
-      let wct = row.WCTime ? row.WCTime.toString() : "";
-      if (wct.length === 14) wct = `${wct.substring(8,10)}:${wct.substring(10,12)}:${wct.substring(12,14)}`;
+      let wct = freshRow.WCTime ? freshRow.WCTime.toString() : "";
+      if (wct.length >= 14) wct = `${wct.substring(8,10)}:${wct.substring(10,12)}:${wct.substring(12,14)}`;
       else if (wct.length === 6) wct = `${wct.substring(0,2)}:${wct.substring(2,4)}:${wct.substring(4,6)}`;
 
       return {
@@ -68,6 +88,8 @@ export async function GET(request: Request) {
         WorkDate: formattedWorkDate,
         WSTime: wst,
         WCTime: wct,
+        ModifyUser: freshRow.ModifyUser || row.ModifyUser,
+        ModifyTime: freshRow.ModifyTime || row.ModifyTime,
         TotalWorkTime: (row.TotalWorkTime || 0) / 60, // 분 -> 시간
         OWTime: (row.OWTime || 0) / 60,
         NWTime: (row.NWTime || 0) / 60,

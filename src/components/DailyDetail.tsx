@@ -6,16 +6,28 @@ import { AttendanceRecord } from "./CalendarView";
 interface DailyDetailProps {
   date: Date;
   record: AttendanceRecord | undefined;
+  onEditClick?: () => void;
 }
 
-export function DailyDetail({ date, record }: DailyDetailProps) {
+export function DailyDetail({ date, record, onEditClick }: DailyDetailProps) {
   const isApproved = record?.ModifyUser || record?.ModifyTime;
   
   return (
     <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 flex flex-col min-h-[300px]">
       <div className="flex justify-between items-start mb-6">
         <div>
-          <h2 className="text-[17px] font-bold text-gray-800 tracking-tight">{format(date, "yyyy년 MM월 dd일")}</h2>
+          <div className="flex items-center space-x-2">
+            <h2 className="text-[17px] font-bold text-gray-800 tracking-tight">{format(date, "yyyy년 MM월 dd일")}</h2>
+            {onEditClick && (
+              <button 
+                onClick={onEditClick}
+                className="p-1.5 text-gray-400 hover:text-orange-500 hover:bg-orange-50 rounded-lg transition-colors"
+                title="기록 수정"
+              >
+                <Edit className="w-4 h-4" />
+              </button>
+            )}
+          </div>
           <p className="text-[13px] text-gray-500 mt-1">{format(date, "EEEE", { locale: ko })}</p>
         </div>
       </div>
