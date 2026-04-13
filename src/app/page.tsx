@@ -19,8 +19,10 @@ import {
   MoreHorizontal,
   Calendar,
   Edit2,
-  ChevronLeft
+  ChevronLeft,
+  Send
 } from "lucide-react";
+
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { EditAttendanceModal } from "@/components/EditAttendanceModal";
@@ -63,11 +65,29 @@ function DashboardContent() {
   const [isLoading, setIsLoading] = useState(true);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editUser, setEditUser] = useState<any>(null);
+  const [isSendingSlack, setIsSendingSlack] = useState(false);
 
   const searchParams = useSearchParams();
   const router = useRouter();
   const userName = searchParams.get("name") || "전체";
   const targetDateParam = searchParams.get("date");
+
+  const handleSendSlack = async () => {
+    setIsSendingSlack(true);
+    try {
+      const res = await fetch("/api/admin/notify-slack", { method: "POST" });
+      if (res.ok) {
+        alert("슬랙 알림이 laika@daangnservice.com 님에게 전송되었습니다.");
+      } else {
+        const data = await res.json();
+        alert(`발송 실패: ${data.error}`);
+      }
+    } catch (err) {
+      alert("서버 오류로 슬랙 발송에 실패했습니다.");
+    } finally {
+      setIsSendingSlack(false);
+    }
+  };
 
   const fetchData = async () => {
     setIsLoading(true);
@@ -127,11 +147,20 @@ function DashboardContent() {
             <p className="text-sm text-gray-400 font-bold mt-1">실시간 전사 출퇴근 데이터 및 통계를 확인합니다.</p>
           </div>
           <div className="flex items-center space-x-3">
+             <button 
+               onClick={handleSendSlack}
+               disabled={isSendingSlack}
+               className="px-4 py-2 bg-slate-900 text-white rounded-2xl shadow-lg shadow-slate-200 text-xs font-black uppercase tracking-widest flex items-center space-x-2 hover:bg-slate-800 transition-all active:scale-95 disabled:opacity-50"
+             >
+                {isSendingSlack ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
+                <span>슬랙 알림 발송</span>
+             </button>
              <div className="px-4 py-2 bg-white border border-gray-100 rounded-2xl shadow-sm text-xs font-black text-gray-400 uppercase tracking-widest">
                 Real-time Sync
              </div>
           </div>
         </div>
+
 
         {/* Admin Overview Stats */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
