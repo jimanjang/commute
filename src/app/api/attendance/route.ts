@@ -5,7 +5,9 @@ import path from "path";
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const nameParam = searchParams.get("name") || "본인";
-  const yearMonthParam = searchParams.get("yearMonth") || "2026-03"; // YYYY-MM
+  const currentYearMonth = new Date().toISOString().slice(0, 7); // "YYYY-MM"
+  const yearMonthParam = searchParams.get("yearMonth") || currentYearMonth; 
+
 
   try {
     const keyFilename = path.join(process.cwd(), "service-account.json");
@@ -14,24 +16,36 @@ export async function GET(request: Request) {
     // YYYY-MM (2026-03) -> YYYYMM (202603)
     const dbYearMonth = yearMonthParam.replace("-", ""); 
     
-    // User might just be "Laika", but DB has "Laika(장지만)". "본인" defaults to "Laika"
-    const searchName = nameParam === "본인" || nameParam === "Laika" ? "Laika" : nameParam.split(" ")[0];
+    // User might just be "Laika", but DB has "Laika(장지만)". 
+    // We search for a broad pattern to match either case.
+    const searchName = nameParam.split("(")[0].trim().replace("본인", "Laika");
+
+
 
     const query = `
       SELECT 
         WorkDate, WorkType, CAST(bLate AS INT64) as bLate, CAST(bAbsent AS INT64) as bAbsent, 
         WSTime, WCTime, ScheduleName, ModifyUser, ModifyTime, 
+        PrevWSTime, PrevWCTime,
         CAST(TotalWorkTime AS FLOAT64) as TotalWorkTime, 
         CAST(OWTime AS FLOAT64) as OWTime, CAST(NWTime AS FLOAT64) as NWTime, 
         CAST(HWTime AS FLOAT64) as HWTime, Name, Sabun
       FROM (
-        SELECT *, 1 as Priority FROM \`secom-data.secom.workhistory\`
+        SELECT 
+          WorkDate, WorkType, bLate, bAbsent, WSTime, WCTime, ScheduleName, 
+          ModifyUser, ModifyTime, PrevWSTime, PrevWCTime, TotalWorkTime, OWTime, NWTime, HWTime, Name, Sabun, InsertTime,
+          1 as Priority 
+        FROM \`secom-data.secom.workhistory\`
         UNION ALL
-        SELECT *, 2 as Priority FROM \`secom-data.secom.workhistory_today\`
+        SELECT 
+          WorkDate, WorkType, bLate, bAbsent, WSTime, WCTime, ScheduleName, 
+          ModifyUser, ModifyTime, PrevWSTime, PrevWCTime, TotalWorkTime, OWTime, NWTime, HWTime, Name, Sabun, InsertTime,
+          2 as Priority 
+        FROM \`secom-data.secom.workhistory_today\`
       )
       WHERE 
         Name LIKE @namePattern AND
-        STARTS_WITH(WorkDate, @dbYearMonth)
+        (REPLACE(WorkDate, '-', '') LIKE @dbYearMonthPattern)
       QUALIFY ROW_NUMBER() OVER (PARTITION BY WorkDate ORDER BY InsertTime DESC, Priority DESC) = 1
       ORDER BY 
         WorkDate ASC
@@ -41,7 +55,7 @@ export async function GET(request: Request) {
       query: query,
       params: { 
         namePattern: `%${searchName}%`, 
-        dbYearMonth 
+        dbYearMonthPattern: `${dbYearMonth}%` 
       },
     };
 
@@ -54,9 +68,10 @@ export async function GET(request: Request) {
       // Import dynamically to avoid top level await/pool issues if this is purely a nextjs API
       const pool = (await import("@/lib/mysql")).default;
       const [mysqlRows]: any = await pool.query(
-        "SELECT WorkDate, WSTime, WCTime, ModifyUser, ModifyTime FROM t_secom_workhistory WHERE Name = ? AND WorkDate LIKE ?",
+        "SELECT WorkDate, WSTime, WCTime, PrevWSTime, PrevWCTime, ModifyUser, ModifyTime, ModifyReason FROM t_secom_workhistory WHERE Name = ? AND WorkDate LIKE ?",
         [nameParam.split(" ")[0] || "Laika", `${dbYearMonth}%`]
       );
+
       if (mysqlRows && mysqlRows.length > 0) {
         for (const r of mysqlRows) {
           mysqlMap.set(r.WorkDate, r);
@@ -75,63 +90,62 @@ export async function GET(request: Request) {
       // Override with MySQL data if it exists (meaning the record was modified but BigQuery sync hasn't run yet)
       const freshRow = mysqlMap.get(wd) || row;
       
-      let wst = freshRow.WSTime ? freshRow.WSTime.toString() : "";
+      let wst = freshRow.WSTime ? freshRow.WSTime.toString().trim() : "";
       if (wst.length >= 14) wst = `${wst.substring(8,10)}:${wst.substring(10,12)}:${wst.substring(12,14)}`;
       else if (wst.length === 6) wst = `${wst.substring(0,2)}:${wst.substring(2,4)}:${wst.substring(4,6)}`;
+      else if (wst.length === 4) wst = `${wst.substring(0,2)}:${wst.substring(2,4)}`;
       
-      let wct = freshRow.WCTime ? freshRow.WCTime.toString() : "";
+      let wct = freshRow.WCTime ? freshRow.WCTime.toString().trim() : "";
       if (wct.length >= 14) wct = `${wct.substring(8,10)}:${wct.substring(10,12)}:${wct.substring(12,14)}`;
       else if (wct.length === 6) wct = `${wct.substring(0,2)}:${wct.substring(2,4)}:${wct.substring(4,6)}`;
+      else if (wct.length === 4) wct = `${wct.substring(0,2)}:${wct.substring(2,4)}`;
+
+      // Format previous times as well
+      const formatTime = (t: any) => {
+        if (!t) return "";
+        const s = t.toString().trim();
+        if (s.length >= 14) return `${s.substring(8,10)}:${s.substring(10,12)}`;
+        if (s.length === 6) return `${s.substring(0,2)}:${s.substring(2,4)}`;
+        if (s.length === 4) return `${s.substring(0,2)}:${s.substring(2,4)}`;
+        return s;
+      };
+
+      const prevWst = formatTime(freshRow.PrevWSTime);
+      const prevWct = formatTime(freshRow.PrevWCTime);
+
+
+      // BQ Sync Check logic (Simplified for Main View)
+      // Check if current row in BQ is the modified one
+      const isModified = !!(freshRow.ModifyUser && freshRow.ModifyUser !== '-1' && freshRow.ModifyUser !== '');
+      const isSynced = isModified ? (!!row.ModifyUser && row.ModifyUser !== '-1' && row.WSTime === freshRow.WSTime && row.WCTime === freshRow.WCTime) : true;
+
 
       return {
         ...row,
         WorkDate: formattedWorkDate,
         WSTime: wst,
         WCTime: wct,
+        PrevWSTime: prevWst,
+        PrevWCTime: prevWct,
         ModifyUser: freshRow.ModifyUser || row.ModifyUser,
         ModifyTime: freshRow.ModifyTime || row.ModifyTime,
+        ModifyReason: freshRow.ModifyReason || row.ModifyReason || "",
+        isSynced: isSynced,
         TotalWorkTime: (row.TotalWorkTime || 0) / 60, // 분 -> 시간
         OWTime: (row.OWTime || 0) / 60,
         NWTime: (row.NWTime || 0) / 60,
         HWTime: (row.HWTime || 0) / 60,
       };
+
     });
 
     return NextResponse.json(formattedRows);
 
+
   } catch (error) {
-    console.warn("BigQuery Fetch Failed, returning mock data. Error details:", error);
-    
-    // UI 폴백
-    const data = [];
-    const year = parseInt(yearMonthParam.substring(0, 4));
-    const month = parseInt(yearMonthParam.substring(5, 7));
-    
-    for (let i = 1; i <= 31; i++) {
-      const dateObj = new Date(year, month - 1, i);
-      if (dateObj.getMonth() !== month - 1) break;
-      
-      const isWeekend = dateObj.getDay() === 0 || dateObj.getDay() === 6;
-      if (!isWeekend) {
-        data.push({
-          WorkDate: `${yearMonthParam}-${i.toString().padStart(2, '0')}`,
-          WorkType: "근무",
-          bLate: 0,
-          bAbsent: 0,
-          WSTime: "08:55:00",
-          WCTime: "19:00:00",
-          ScheduleName: "10:00 ~ 19:00",
-          ModifyUser: "Ian Jeong",
-          ModifyTime: "2026-03-01T00:00:00Z",
-          TotalWorkTime: 8,
-          OWTime: 0,
-          NWTime: 0,
-          HWTime: 0,
-          Name: nameParam,
-          Sabun: "",
-        });
-      }
-    }
-    return NextResponse.json(data);
+    console.error("Critical BigQuery Fetch Failure:", error);
+    return NextResponse.json({ error: "BigQuery connection failed", details: error instanceof Error ? error.message : String(error) }, { status: 500 });
+
+
   }
 }

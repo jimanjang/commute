@@ -5,7 +5,7 @@ import path from "path";
 
 export async function PATCH(request: Request) {
   try {
-    const { name, date, startTime, endTime } = await request.json();
+    const { name, date, startTime, endTime, reason } = await request.json();
 
     if (!name || !date) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
@@ -59,6 +59,16 @@ export async function PATCH(request: Request) {
        }
     }
 
+    // 1.5 Get current session for the modifier information
+    const { getServerSession } = await import("next-auth/next");
+    const { authOptions } = await import("@/lib/auth");
+    const session = await getServerSession(authOptions);
+    
+    // Extract first name (e.g., "laika" from "laika jang")
+    const modifierName = session?.user?.name 
+      ? session.user.name.split(' ')[0] 
+      : 'ADMIN_WEB';
+
     // 2. MySQL은 Primary Key가 있으므로 UPDATE 수행
     const nowStr = new Date().toLocaleString("sv-SE").replace(/[- :]/g, "").slice(0, 14);
     
@@ -69,10 +79,15 @@ export async function PATCH(request: Request) {
       SET 
         WSTime = COALESCE(?, WSTime), 
         WCTime = COALESCE(?, WCTime),
-        ModifyUser = 'ADMIN_WEB',
+        PrevWSTime = ?, 
+        PrevWCTime = ?,
+        ModifyUser = ?,
         ModifyTime = ?,
-        InsertTime = ?
+        InsertTime = ?,
+        ModifyReason = ?
       WHERE Name = ? AND WorkDate = ?
+
+
       ORDER BY InsertTime DESC
       LIMIT 1
     `;
@@ -80,11 +95,18 @@ export async function PATCH(request: Request) {
     const [updateResult]: any = await pool.query(updateQuery, [
       formattedStartTime, 
       finalEndTime, 
+      rec.WSTime, // 기존 출근 기록 백업
+      rec.WCTime, // 기존 퇴근 기록 백업
+      modifierName,
       nowStr,
       nowStr, // 강제로 InsertTime 최신화
+      reason || null, // 수정 사유 저장
       name, 
       date8
     ]);
+
+
+
 
     if (updateResult.affectedRows === 0) {
       return NextResponse.json({ error: "Record not found in MySQL" }, { status: 404 });

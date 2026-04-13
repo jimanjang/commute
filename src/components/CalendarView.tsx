@@ -16,7 +16,13 @@ export interface AttendanceRecord {
   ScheduleName: string | null;
   ModifyUser: string | null;
   ModifyTime: string | null;
+  ModifyReason?: string | null;
+  PrevWSTime?: string | null;
+  PrevWCTime?: string | null;
+  isSynced?: boolean;
+
   TotalWorkTime: number;
+
   OWTime: number;
   NWTime: number;
   HWTime: number;
@@ -91,8 +97,15 @@ export function CalendarView({ data, onDateSelect, selectedDate, onMonthChange }
         const dayData = data.find(d => d.WorkDate.startsWith(currentStringDate));
         const isSelected = selectedDate ? isSameDay(day, selectedDate) : false;
         const isCurrentMonth = isSameMonth(day, monthStart);
-        
-        const hasWork = dayData && (dayData.WorkType === "근무" || dayData.WorkType === "정상근무" || dayData.TotalWorkTime > 0);
+        const isToday = isSameDay(day, new Date());
+        const isPast = day < new Date() && !isToday;
+        const isWeekend = i === 0 || i === 6;
+        const hasWork = dayData && (dayData.WorkType === "근무" || dayData.WorkType === "정상근무" || dayData.TotalWorkTime > 0 || !!dayData.WSTime);
+        const hasCheckOut = !!dayData?.WCTime;
+        const isMissingOut = dayData?.WSTime && !dayData?.WCTime && (isToday ? new Date().getHours() >= 19 : isPast);
+        const isMissingAll = !isWeekend && isPast && (!dayData || (!dayData.WSTime && !dayData.WCTime));
+
+
         const isLate = dayData?.bLate === 1;
         const isAbsent = dayData?.bAbsent === 1;
 
@@ -116,17 +129,43 @@ export function CalendarView({ data, onDateSelect, selectedDate, onMonthChange }
               {formattedDate}
             </span>
             
-            <div className="mt-0.5 flex flex-col gap-0.5 w-full px-1 items-center">
-              {hasWork && (
-                 <div className={cn(
-                   "text-[11px] px-2.5 py-0.5 rounded-full font-medium tracking-tight",
-                   isSelected ? "bg-slate-600 text-gray-200" : "bg-gray-400 text-white"
-                 )}>
-                   근무일
-                 </div>
+            <div className="mt-1 flex flex-col gap-0.5 w-full items-center">
+              {isCurrentMonth && (
+                <>
+                  <div className="flex flex-col gap-0.5 items-center">
+                    {hasWork && (
+                      <div className="text-[10px] bg-emerald-500 text-white w-11 py-0.5 rounded-full font-bold tracking-tight text-center leading-none">
+                        출근
+                      </div>
+                    )}
+                    {hasCheckOut && (
+                      <div className="text-[10px] bg-blue-500 text-white w-11 py-0.5 rounded-full font-bold tracking-tight text-center leading-none">
+                        퇴근
+                      </div>
+                    )}
+                  </div>
+
+                  {!hasWork && !hasCheckOut && (i === 0 || i === 6) && (
+                    <div className="text-[10px] bg-gray-100 text-gray-400 w-11 py-0.5 rounded-full font-bold tracking-tight text-center leading-none">
+                      휴일
+                    </div>
+                  )}
+
+                  {isMissingAll && (
+                    <div className="flex flex-col items-center gap-0.5">
+                      <div className="text-[10px] bg-gray-500 text-white w-11 py-0.5 rounded-full font-bold tracking-tight text-center leading-none">출근X</div>
+                      <div className="text-[10px] bg-gray-500 text-white w-11 py-0.5 rounded-full font-bold tracking-tight text-center leading-none">퇴근X</div>
+                    </div>
+                  )}
+
+                  {isMissingOut && !isMissingAll && (
+                    <div className="text-[10px] bg-red-500 text-white w-11 py-0.5 rounded-full font-bold tracking-tight text-center leading-none">퇴근X</div>
+                  )}
+                  
+                  {isLate && <div className="text-[10px] text-orange-500 font-bold tracking-tight text-center">지각</div>}
+                  {isAbsent && <div className="text-[10px] text-red-500 font-bold tracking-tight text-center">결근</div>}
+                </>
               )}
-              {isLate && <div className="text-[10px] text-orange-500 font-bold tracking-tight">지각</div>}
-              {isAbsent && <div className="text-[10px] text-red-500 font-bold tracking-tight">결근</div>}
             </div>
           </div>
         );

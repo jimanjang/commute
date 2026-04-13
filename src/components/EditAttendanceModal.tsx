@@ -18,10 +18,13 @@ interface EditAttendanceModalProps {
 }
 
 export function EditAttendanceModal({ isOpen, onClose, user, date, onSuccess }: EditAttendanceModalProps) {
-  const [startTime, setStartTime] = useState(user.checkIn === "-" ? "09:00" : user.checkIn);
-  const [endTime, setEndTime] = useState(user.checkOut === "-" ? "18:00" : user.checkOut);
+  const [startTime, setStartTime] = useState("10:00");
+  const [endTime, setEndTime] = useState("19:00");
+
+  const [reason, setReason] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
 
   if (!isOpen) return null;
 
@@ -36,7 +39,8 @@ export function EditAttendanceModal({ isOpen, onClose, user, date, onSuccess }: 
           name: user.name,
           date: date,
           startTime,
-          endTime
+          endTime,
+          reason
         })
       });
 
@@ -100,6 +104,17 @@ export function EditAttendanceModal({ isOpen, onClose, user, date, onSuccess }: 
                />
             </div>
           </div>
+
+          <div className="space-y-2">
+            <label className="text-[11px] font-black text-gray-400 uppercase tracking-widest ml-1">수정 사유 (선택)</label>
+            <textarea 
+              placeholder="심야 근무 보정, 지문 인식 누락 등 사유를 입력하세요..."
+              className="w-full bg-gray-50 border border-gray-100 p-4 rounded-2xl outline-none focus:ring-2 focus:ring-blue-100 focus:bg-white transition-all text-[14px] font-medium min-h-[100px] resize-none"
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+            />
+          </div>
+
 
           <div className="bg-orange-50/50 p-4 rounded-2xl border border-orange-100/50">
              <p className="text-[11px] text-orange-700/70 font-bold leading-relaxed">

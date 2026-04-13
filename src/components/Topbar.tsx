@@ -2,10 +2,13 @@
 
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import { useState, useRef, useEffect } from "react";
-import { ChevronDown, Search, Bell, UserCircle, Users } from "lucide-react";
+import { ChevronDown, Search, Bell, LogOut, Users } from "lucide-react";
+import { useSession, signOut } from "next-auth/react";
 
 export function Topbar() {
+  const { data: session } = useSession();
   const [isOpen, setIsOpen] = useState(false);
+
   const [search, setSearch] = useState("");
   const [users, setUsers] = useState<{name: string, sabun: string, displayName?: string}[]>([]);
   const searchParams = useSearchParams();
@@ -78,11 +81,14 @@ export function Topbar() {
             className="flex items-center space-x-3 px-5 py-2.5 bg-white border border-gray-100 rounded-2xl text-[14px] text-gray-700 hover:border-orange-200 hover:bg-orange-50/30 focus:outline-none min-w-[180px] justify-between transition-all shadow-sm group"
           >
             <div className="flex items-center">
-              <UserCircle className="w-5 h-5 mr-3 text-gray-400 group-hover:text-orange-500 transition-colors" />
+              <div className="w-5 h-5 mr-3 rounded-full bg-orange-100 flex items-center justify-center text-[10px] font-black text-orange-500">
+                {selectedDisplayName[0]}
+              </div>
               <span className="font-extrabold">{selectedDisplayName}</span>
             </div>
             <ChevronDown className="w-4 h-4 text-gray-400 group-hover:text-orange-500" />
           </button>
+
 
           {isOpen && (
             <div className="absolute right-0 mt-3 w-80 bg-white border border-gray-100 rounded-[28px] shadow-2xl z-50 overflow-hidden animate-in fade-in zoom-in-95 duration-200 ring-1 ring-black/5">
@@ -138,16 +144,34 @@ export function Topbar() {
           )}
         </div>
 
-        <div className="flex items-center space-x-4">
+        <div className="flex items-center space-x-3">
           <button className="relative p-2.5 text-gray-400 hover:text-orange-600 hover:bg-orange-50 rounded-2xl transition-all group">
             <Bell className="w-5.5 h-5.5" />
             <span className="absolute top-2.5 right-2.5 w-2 h-2 bg-orange-600 rounded-full border-2 border-white ring-2 ring-orange-100 animate-pulse"></span>
           </button>
-          <div className="p-0.5 bg-gray-100 rounded-2xl hover:bg-orange-100 transition-all cursor-pointer shadow-inner group">
-            <div className="w-10 h-10 bg-white rounded-[14px] flex items-center justify-center font-black text-[12px] text-gray-800 border border-white shadow-sm group-hover:text-orange-600">
-              ADM
-            </div>
+
+          {/* User avatar + name */}
+          <div className="flex items-center space-x-2 px-3 py-1.5 bg-gray-50 border border-gray-100 rounded-2xl">
+            {session?.user?.image ? (
+              <img src={session.user.image} alt="avatar" className="w-7 h-7 rounded-full" />
+            ) : (
+              <div className="w-7 h-7 bg-orange-100 rounded-full flex items-center justify-center font-black text-[11px] text-orange-600">
+                {session?.user?.name?.[0] || "A"}
+              </div>
+            )}
+            <span className="text-[13px] font-bold text-gray-700 max-w-[120px] truncate">
+              {session?.user?.name || "Admin"}
+            </span>
           </div>
+
+          {/* Logout button */}
+          <button
+            onClick={() => signOut({ callbackUrl: "/auth/signin" })}
+            className="p-2.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-2xl transition-all group"
+            title="로그아웃"
+          >
+            <LogOut className="w-5 h-5" />
+          </button>
         </div>
       </div>
     </header>

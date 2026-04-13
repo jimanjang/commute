@@ -75,12 +75,12 @@ export default function MembersPage() {
               <tr className="bg-gray-50/30">
                 <th className="px-8 py-4 text-[11px] font-black text-gray-400 uppercase tracking-widest text-center">구성원 (성명/사번)</th>
                 <th className="px-8 py-4 text-[11px] font-black text-gray-400 uppercase tracking-widest text-center">부서 / 팀</th>
-                <th className="px-8 py-4 text-[11px] font-black text-gray-400 uppercase tracking-widest text-center">직책</th>
                 <th className="px-8 py-4 text-[11px] font-black text-gray-400 uppercase tracking-widest text-center">근무조</th>
                 <th className="px-8 py-4 text-[11px] font-black text-gray-400 uppercase tracking-widest text-center">상태</th>
                 <th className="px-8 py-4 text-[11px] font-black text-gray-400 uppercase tracking-widest text-center">입사일</th>
                 <th className="px-8 py-4 text-[11px] font-black text-gray-400 uppercase tracking-widest text-center">관리</th>
               </tr>
+
             </thead>
             <tbody className="divide-y divide-gray-50">
               {isLoading ? (
@@ -97,9 +97,12 @@ export default function MembersPage() {
                         {user.displayName?.[0]}
                       </div>
                       <div>
-                        <p className="text-[15px] font-black text-gray-800">{user.displayName}</p>
-                        <p className="text-[11px] text-gray-400 font-bold font-mono tracking-tighter">{user.name} (#{user.sabun})</p>
+                        <p className="text-[15px] font-black text-gray-800">
+                           {user.displayName?.includes(user.name) ? user.displayName : `${user.displayName}(${user.name})`}
+                        </p>
+                        <p className="text-[11px] text-gray-400 font-bold font-mono tracking-tighter">#{user.sabun}</p>
                       </div>
+
                     </div>
                   </td>
                   <td className="px-8 py-6 text-center">
@@ -108,25 +111,25 @@ export default function MembersPage() {
                       {user.part && <span className="text-[11px] text-gray-400 font-bold">{user.part}</span>}
                     </div>
                   </td>
-                  <td className="px-8 py-6 text-center">
-                    <span className="text-sm font-bold text-gray-600">{user.role || "-"}</span>
-                  </td>
+
                   <td className="px-8 py-6 text-center">
                     <span className="bg-orange-50 text-orange-600 px-3 py-1 rounded-lg text-[12px] font-black ring-1 ring-orange-100">
-                      {user.workGroup || "-"}
+                      {user.workGroup === "002" ? "정규" : (user.workGroup || "-")}
                     </span>
                   </td>
+
                   <td className="px-8 py-6 text-center">
                     <div className={cn(
                       "px-3 py-1.5 rounded-xl text-[11px] font-black inline-flex items-center shadow-sm ring-1",
-                      user.status === "재직" || user.status === "Active" 
+                      user.status === "출근" || user.status === "재직" || user.status === "Active" 
                         ? "bg-emerald-50 text-emerald-600 ring-emerald-100" 
                         : "bg-gray-50 text-gray-400 ring-gray-100"
                     )}>
-                      <div className={cn("w-1.5 h-1.5 rounded-full mr-2", (user.status === "재직" || user.status === "Active") ? "bg-emerald-500" : "bg-gray-300")} />
-                      {user.status || "알수없음"}
+                      <div className={cn("w-1.5 h-1.5 rounded-full mr-2", (user.status === "출근" || user.status === "재직" || user.status === "Active") ? "bg-emerald-500" : "bg-gray-300")} />
+                      {user.status || "미출근"}
                     </div>
                   </td>
+
                   <td className="px-8 py-6 text-sm font-bold text-gray-500 italic text-center">
                     {user.joiningDate || "-"}
                   </td>

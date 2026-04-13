@@ -1,104 +1,135 @@
 "use client";
 
-import { cn } from "@/lib/utils";
-import { 
-  ChevronLeft, 
-  LayoutDashboard, 
-  Users, 
-  History, 
-  BarChart3, 
-  Settings, 
-  RefreshCw,
-  MoreVertical,
-  ChevronDown
-} from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import {
+  LayoutDashboard,
+  Users,
+  History,
+  RefreshCw,
+  LogOut,
+  Menu,
+  X,
+} from "lucide-react";
+import { useState } from "react";
+import { useSession, signOut } from "next-auth/react";
+
+const navItems = [
+  { href: "/", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/admin/members", label: "구성원 현황", icon: Users },
+  { href: "/admin/logs", label: "기록 수정 로그", icon: History },
+  { href: "/admin/sync", label: "동기화 상태", icon: RefreshCw },
+];
 
 export function Sidebar() {
   const pathname = usePathname();
-
-  const menuItems = [
-    { name: "대시보드", icon: LayoutDashboard, href: "/" },
-    { name: "구성원 현황", icon: Users, href: "/admin/members" }, 
-  ];
-
-  // For proper navigation, let's redefine menu items with correct icons
-  const navItems = [
-    { name: "대시보드", icon: LayoutDashboard, href: "/" },
-    { name: "구성원 현황", icon: Users, href: "/admin/members" },
-  ];
+  const [open, setOpen] = useState(false);
+  const { data: session } = useSession();
 
   return (
-    <aside className="w-[260px] border-r border-gray-100 h-screen flex flex-col bg-white overflow-y-auto shrink-0 shadow-sm transition-all duration-300">
-      {/* Header */}
-      <div className="p-6 flex items-center justify-between pb-8">
-        <div className="flex items-center space-x-3">
+    <>
+      {/* Mobile toggle */}
+      <button
+        onClick={() => setOpen(!open)}
+        className="fixed top-4 left-4 z-50 md:hidden p-2 rounded-xl bg-white/80 backdrop-blur text-gray-900 shadow-sm border border-gray-200"
+      >
+        {open ? <X size={20} /> : <Menu size={20} />}
+      </button>
+
+      {/* Overlay */}
+      {open && (
+        <div
+          className="fixed inset-0 bg-black/40 z-30 md:hidden"
+          onClick={() => setOpen(false)}
+        />
+      )}
+
+      {/* Sidebar */}
+      <aside
+        className={`
+          fixed top-0 left-0 z-40 h-full w-64
+          bg-white
+          border-r border-gray-200
+          flex flex-col
+          transition-transform duration-300 ease-in-out
+          ${open ? "translate-x-0" : "-translate-x-full"}
+          md:translate-x-0 md:static md:z-auto shrink-0
+        `}
+      >
+        {/* Logo */}
+        <div className="px-6 py-6 border-b border-gray-100 flex items-center justify-start">
           <Link href="/" className="flex items-center">
-            <img src="/logo.png" alt="새콤 출퇴근 관리" className="h-[34px] w-auto transition-transform hover:scale-105" />
+            <img
+              src="/logo.png"
+              alt="Karrot Service"
+              className="h-10 w-auto object-contain hover:scale-105 transition-transform"
+            />
           </Link>
         </div>
-        <div className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 cursor-pointer transition-colors">
-          <ChevronLeft className="w-5 h-5 text-gray-400" />
-        </div>
-      </div>
 
-      {/* Navigation */}
-      <nav className="flex-1 px-4 space-y-1">
-        <div className="mb-4">
-          <p className="px-3 mb-3 text-[11px] font-extrabold text-gray-400 tracking-widest uppercase">Admin Menu</p>
-          <ul className="space-y-1.5">
-            {navItems.map((item) => (
-              <li key={item.href}>
-                <Link 
-                  href={item.href}
-                  className={cn(
-                    "flex items-center px-4 py-3 text-[14.5px] rounded-2xl transition-all duration-200 group",
-                    pathname === item.href 
-                      ? "bg-orange-50 text-orange-600 font-extrabold shadow-sm ring-1 ring-orange-100" 
-                      : "text-gray-500 hover:bg-gray-50 hover:text-gray-900"
-                  )}
-                >
-                  <item.icon className={cn(
-                    "w-5 h-5 mr-3 transition-transform group-hover:scale-110",
-                    pathname === item.href ? "text-orange-600" : "text-gray-400 group-hover:text-gray-600"
-                  )} />
-                  {item.name}
-                </Link>
-              </li>
-            ))}
-          </ul>
-        </div>
 
-        <div className="mt-8 pt-8 border-t border-gray-50">
-          <p className="px-3 mb-3 text-[11px] font-extrabold text-gray-400 tracking-widest uppercase">System Status</p>
-          <ul className="space-y-1.5">
-            <li>
-              <Link href="/admin/sync" className={cn(
-                "flex items-center px-4 py-3 text-[14.5px] rounded-2xl transition-all group",
-                pathname === "/admin/sync" 
-                  ? "bg-blue-50 text-blue-600 font-extrabold shadow-sm ring-1 ring-blue-100" 
-                  : "text-gray-500 hover:bg-gray-50 hover:text-gray-900"
-              )}>
-                <RefreshCw className={cn(
-                  "w-5 h-5 mr-3 transition-transform group-hover:rotate-180 duration-500",
-                  pathname === "/admin/sync" ? "text-blue-600" : "text-gray-400 group-hover:text-blue-600"
-                )} />
-                동기화 상태
+        {/* Navigation */}
+        <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto custom-scrollbar">
+          <p className="px-4 mb-2 text-[10px] font-black text-gray-400 tracking-widest uppercase opacity-50">Admin Menu</p>
+          {navItems.map((item) => {
+            const isActive =
+              item.href === "/"
+                ? pathname === "/"
+                : pathname.startsWith(item.href);
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                onClick={() => setOpen(false)}
+                className={`
+                  flex items-center gap-3 px-4 py-3 rounded-2xl text-[14px] font-bold
+                  transition-all duration-200 group
+                  ${isActive
+                    ? "bg-orange-50 text-[#FF6F0F] shadow-sm ring-1 ring-orange-100/50"
+                    : "text-gray-500 hover:text-gray-900 hover:bg-gray-50"
+                  }
+                `}
+              >
+                <item.icon
+                  className={`w-5 h-5 transition-transform group-hover:scale-110 ${isActive
+                    ? "text-[#FF6F0F]"
+                    : "text-gray-400 group-hover:text-gray-600"
+                    }`}
+                />
+                {item.label}
               </Link>
-            </li>
-          </ul>
-        </div>
-      </nav>
+            );
+          })}
+        </nav>
 
-      {/* Footer / Admin Profile */}
-      <div className="p-4 m-4 bg-gray-50/50 rounded-2xl border border-gray-100 flex items-center justify-between hover:bg-gray-100 transition-colors cursor-pointer">
-        <div className="flex flex-col">
-          <div className="text-[13px] font-extrabold text-gray-800 tracking-tight">Admin System</div>
-          <div className="text-[11px] text-gray-400 font-medium truncate max-w-[140px]">admin@commute.com</div>
+        {/* Footer (Profile & Logout) */}
+        <div className="p-4 border-t border-gray-100 space-y-3 bg-gray-50/30">
+          <div className="flex items-center gap-3 px-2">
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-orange-400 to-orange-600 flex items-center justify-center text-xs font-bold text-white overflow-hidden shadow-md ring-2 ring-white">
+              {session?.user?.image ? (
+                <img src={session.user.image} alt="avatar" className="w-full h-full object-cover" />
+              ) : (
+                session?.user?.name?.charAt(0) || "A"
+              )}
+            </div>
+            <div className="flex-1 overflow-hidden">
+              <p className="text-[13px] font-black text-gray-900 truncate">
+                {session?.user?.name || "Admin"}
+              </p>
+              <p className="text-[10px] font-bold text-gray-400 truncate opacity-70">
+                {session?.user?.email || "Super Admin"}
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => signOut({ callbackUrl: "/auth/signin" })}
+            className="flex items-center gap-2.5 w-full px-4 py-2.5 rounded-xl text-[12px] font-black text-gray-500 hover:text-red-600 hover:bg-red-50 transition-all border border-gray-200/50 bg-white hover:border-red-100 shadow-sm"
+          >
+            <LogOut size={14} className="opacity-70" />
+            Sign Out
+          </button>
         </div>
-        <MoreVertical className="w-4 h-4 text-gray-400" />
-      </div>
-    </aside>
+      </aside>
+    </>
   );
 }
