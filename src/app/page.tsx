@@ -20,12 +20,14 @@ import {
   Calendar,
   Edit2,
   ChevronLeft,
-  Send
+  Send,
+  Mail
 } from "lucide-react";
 
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { EditAttendanceModal } from "@/components/EditAttendanceModal";
+import { BulkEmailModal } from "@/components/BulkEmailModal";
 
 function StatCard({ title, value, icon: Icon, trend, color }: any) {
   return (
@@ -66,6 +68,9 @@ function DashboardContent() {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editUser, setEditUser] = useState<any>(null);
   const [isSendingSlack, setIsSendingSlack] = useState(false);
+  const [isTestingBot, setIsTestingBot] = useState(false);
+  const [testTargetEmail, setTestTargetEmail] = useState("laika@daangnservice.com");
+  const [isBulkEmailOpen, setIsBulkEmailOpen] = useState(false);
 
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -86,6 +91,35 @@ function DashboardContent() {
       alert("서버 오류로 슬랙 발송에 실패했습니다.");
     } finally {
       setIsSendingSlack(false);
+    }
+  };
+
+  const handleTestBot = async (type: 'checkin' | 'reminder') => {
+    setIsTestingBot(true);
+    try {
+      const endpoint = type === 'checkin' ? '/api/admin/bot/notify-checkin' : '/api/admin/bot/remind-missing';
+      const body = { email: testTargetEmail };
+      
+      const res = await fetch(endpoint, { 
+        method: "POST",
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      
+      const data = await res.json();
+      if (res.ok) {
+        if (data.message) {
+           alert(`${data.message}`);
+        } else {
+           alert(`봇 알림(${type === 'checkin' ? '출근 확인' : '리마인더'})이 ${testTargetEmail} 님에게 발송되었습니다.`);
+        }
+      } else {
+        alert(`봇 발송 실패: ${data.message || data.error}`);
+      }
+    } catch (err) {
+      alert("서버 오류로 봇 발송에 실패했습니다.");
+    } finally {
+      setIsTestingBot(false);
     }
   };
 
@@ -242,6 +276,13 @@ function DashboardContent() {
                     필터 해제
                   </button>
                 )}
+                <button 
+                  onClick={() => setIsBulkEmailOpen(true)}
+                  className="px-4 py-2.5 bg-indigo-50 text-indigo-700 text-xs font-black rounded-xl border border-indigo-100 hover:bg-indigo-100 transition-all flex items-center space-x-2"
+                >
+                  <Mail className="w-3.5 h-3.5" />
+                  <span>이메일 일괄 관리</span>
+                </button>
                 <Link href="/?name=전체" className="px-5 py-2.5 bg-white text-slate-700 text-sm font-bold rounded-xl border border-gray-200 shadow-sm hover:bg-gray-50 transition-colors inline-flex items-center space-x-2">
                   <ChevronLeft className="w-4 h-4 text-gray-500" />
                   <span>달력으로 돌아가기</span>
@@ -258,19 +299,20 @@ function DashboardContent() {
               <table className="w-full text-left border-collapse">
                 <thead>
                   <tr className="bg-gray-50/50">
-                    <th className="px-8 py-4 text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">구성원 (성명/사번)</th>
-                    <th className="px-8 py-4 text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] text-center">부서 / 팀</th>
-                    <th className="px-8 py-4 text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] text-center">출근 시간</th>
-                    <th className="px-8 py-4 text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] text-center">퇴근 시간</th>
-                    <th className="px-8 py-4 text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] text-center">상태</th>
-                    <th className="px-8 py-4 text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] text-center">관리</th>
+                    <th className="px-5 py-4 text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] whitespace-nowrap">구성원 (성명/사번)</th>
+                    <th className="px-5 py-4 text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] text-center whitespace-nowrap">부서 / 팀</th>
+                    <th className="px-5 py-4 text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] text-center whitespace-nowrap">이메일</th>
+                    <th className="px-5 py-4 text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] text-center whitespace-nowrap">출근 시간</th>
+                    <th className="px-5 py-4 text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] text-center whitespace-nowrap">퇴근 시간</th>
+                    <th className="px-5 py-4 text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] text-center whitespace-nowrap">상태</th>
+                    <th className="px-5 py-4 text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] text-center whitespace-nowrap">관리</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
                   {filteredUsers.map((user, idx) => (
                     <tr key={idx} className="hover:bg-orange-50/10 transition-colors group">
 
-                      <td className="px-8 py-5">
+                      <td className="px-5 py-5 whitespace-nowrap">
                         <div className="flex items-center space-x-4">
                           <div className="w-10 h-10 bg-slate-100 rounded-[14px] flex items-center justify-center font-black text-slate-400 text-xs shadow-inner group-hover:bg-orange-100 group-hover:text-orange-600 transition-all">
                             {user.displayName?.[0]}
@@ -283,24 +325,27 @@ function DashboardContent() {
                           </div>
                         </div>
                       </td>
-                      <td className="px-8 py-5 text-center">
+                      <td className="px-5 py-5 text-center whitespace-nowrap">
                         <span className="text-[13px] font-bold text-gray-700">{user.team}</span>
                       </td>
-                      <td className="px-8 py-5 text-center text-sm font-bold text-gray-600 font-mono">
+                      <td className="px-5 py-5 text-center whitespace-nowrap">
+                        <span className="text-[12px] font-bold text-slate-500">{user.email || "-"}</span>
+                      </td>
+                      <td className="px-5 py-5 text-center text-sm font-bold text-gray-600 font-mono whitespace-nowrap">
                         {user.checkIn !== "-" ? (
                           <span className="text-blue-600">{user.checkIn}</span>
                         ) : (
                           <span className="text-gray-300">--:--</span>
                         )}
                       </td>
-                      <td className="px-8 py-5 text-center text-sm font-bold text-gray-600 font-mono">
+                      <td className="px-5 py-5 text-center text-sm font-bold text-gray-600 font-mono whitespace-nowrap">
                         {user.checkOut !== "-" ? (
                           <span className="text-blue-600">{user.checkOut}</span>
                         ) : (
                           <span className="text-gray-300">--:--</span>
                         )}
                       </td>
-                      <td className="px-8 py-5 text-center">
+                      <td className="px-5 py-5 text-center whitespace-nowrap">
                         <span className={cn(
                           "px-2.5 py-1 rounded-full text-[11px] font-black shadow-sm ring-1",
                           user.status === "출근" ? "bg-emerald-50 text-emerald-600 ring-emerald-100" : 
@@ -311,14 +356,14 @@ function DashboardContent() {
                           {user.status}
                         </span>
                       </td>
-                      <td className="px-8 py-5 text-center">
+                      <td className="px-5 py-5 text-center whitespace-nowrap">
                         <div className="flex items-center justify-center space-x-1">
                           <Link 
                             href={`/?name=${encodeURIComponent(user.name)}&yearMonth=${targetDateParam ? targetDateParam.substring(0,7) : format(new Date(), 'yyyy-MM')}`}
                             className="inline-flex items-center justify-center p-2.5 text-gray-300 hover:text-blue-500 hover:bg-blue-50/50 rounded-xl transition-all"
                             title="상세 보기"
                           >
-                            <Calendar className="w-5 h-5" />
+                            <Calendar className="w-4 h-4" />
                           </Link>
                           <button 
                             onClick={() => {
@@ -328,7 +373,7 @@ function DashboardContent() {
                             className="inline-flex items-center justify-center p-2.5 text-gray-300 hover:text-orange-500 hover:bg-orange-50/50 rounded-xl transition-all"
                             title="기록 수정 (MySQL)"
                           >
-                            <Edit2 className="w-5 h-5" />
+                            <Edit2 className="w-4 h-4" />
                           </button>
                         </div>
                       </td>
@@ -349,6 +394,13 @@ function DashboardContent() {
             onSuccess={() => fetchData()}
           />
         )}
+
+        <BulkEmailModal 
+          isOpen={isBulkEmailOpen}
+          onClose={() => setIsBulkEmailOpen(false)}
+          onSuccess={() => fetchData()}
+          users={allUsersData}
+        />
       </div>
     );
   }

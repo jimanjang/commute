@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 export interface AdminDailyCount {
   date: string; // YYYY-MM-DD
   checkIns: number;
+  checkOuts: number;
   lates: number;
   absents: number;
 }
@@ -101,12 +102,18 @@ export function AdminCalendarView({ data, onDateSelect, selectedDate, currentMon
               </span>
             </div>
             
-            {dayData && (dayData.checkIns > 0 || dayData.lates > 0 || dayData.absents > 0) && (
+            {dayData && (dayData.checkIns > 0 || dayData.checkOuts > 0 || dayData.lates > 0 || dayData.absents > 0) && (
               <div className="mt-auto flex flex-col gap-1 w-full pl-1">
                 {dayData.checkIns > 0 && (
                   <div className="flex items-center text-[12px] font-bold text-emerald-600 bg-emerald-50/50 rounded px-1.5 py-0.5">
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1.5"></span>
                     출근 {dayData.checkIns}
+                  </div>
+                )}
+                {dayData.checkOuts > 0 && (
+                  <div className="flex items-center text-[12px] font-bold text-blue-600 bg-blue-50/50 rounded px-1.5 py-0.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-blue-500 mr-1.5"></span>
+                    퇴근 {dayData.checkOuts}
                   </div>
                 )}
                 {dayData.lates > 0 && (

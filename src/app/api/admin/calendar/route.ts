@@ -17,20 +17,21 @@ export async function GET(request: Request) {
       SELECT 
         w.WorkDate,
         COUNT(DISTINCT CASE WHEN w.WSTime IS NOT NULL AND w.WSTime != '' THEN p.Name END) as checkIns,
+        COUNT(DISTINCT CASE WHEN w.WCTime IS NOT NULL AND w.WCTime != '' THEN p.Name END) as checkOuts,
         SUM(CAST(w.bLate AS INT64)) as lates,
         SUM(CAST(w.bAbsent AS INT64)) as absents
       FROM 
         \`secom-data.secom.person\` p
       JOIN (
-        SELECT Name, WorkDate, WSTime, bLate, bAbsent
+        SELECT Name, WorkDate, WSTime, WCTime, bLate, bAbsent
         FROM (
-          SELECT Name, WorkDate, WSTime, bLate, bAbsent, InsertTime, 1 as Priority 
+          SELECT Name, WorkDate, WSTime, WCTime, bLate, bAbsent, InsertTime, 1 as Priority 
           FROM \`secom-data.secom.workhistory\` 
           WHERE STARTS_WITH(WorkDate, @dbYearMonth)
           
           UNION ALL
           
-          SELECT Name, WorkDate, WSTime, bLate, bAbsent, InsertTime, 2 as Priority 
+          SELECT Name, WorkDate, WSTime, WCTime, bLate, bAbsent, InsertTime, 2 as Priority 
           FROM \`secom-data.secom.workhistory_today\` 
           WHERE STARTS_WITH(WorkDate, @dbYearMonth)
         )
@@ -50,22 +51,67 @@ export async function GET(request: Request) {
       params: { dbYearMonth },
     };
 
-    const [rows] = await bigquery.query(options);
+    const [bqRows] = await bigquery.query(options);
 
-    // Format WorkDate from "20260318" to "2026-03-18"
-    const formattedRows = rows.map(row => {
-      const wd = row.WorkDate ? row.WorkDate.toString() : "";
-      const formattedWorkDate = wd.length === 8 ? `${wd.substring(0,4)}-${wd.substring(4,6)}-${wd.substring(6,8)}` : "";
-      
-      return {
-        date: formattedWorkDate,
-        checkIns: row.checkIns || 0,
-        lates: row.lates || 0,
-        absents: row.absents || 0
-      };
+    // 2. MySQL Overlay (Immediately reflect changes and catch missing days)
+    const dailyMap = new Map();
+    
+    // Initialize with BigQuery Data
+    bqRows.forEach((row: any) => {
+      dailyMap.set(row.WorkDate, {
+        checkIns: Number(row.checkIns || 0),
+        checkOuts: Number(row.checkOuts || 0),
+        lates: Number(row.lates || 0),
+        absents: Number(row.absents || 0)
+      });
     });
 
-    return NextResponse.json(formattedRows);
+    try {
+      const pool = (await import("@/lib/mysql")).default;
+      const [mysqlRows]: any = await pool.query(
+        `SELECT 
+           WorkDate, 
+           COUNT(DISTINCT CASE WHEN WSTime IS NOT NULL AND WSTime != '' THEN Name END) as checkIns,
+           COUNT(DISTINCT CASE WHEN WCTime IS NOT NULL AND WCTime != '' THEN Name END) as checkOuts,
+           SUM(CASE WHEN bLate = '1' OR bLate = 1 THEN 1 ELSE 0 END) as lates,
+           SUM(CASE WHEN bAbsent = '1' OR bAbsent = 1 THEN 1 ELSE 0 END) as absents
+         FROM t_secom_workhistory 
+         WHERE WorkDate LIKE ?
+         GROUP BY WorkDate`,
+        [`${dbYearMonth}%`]
+      );
+
+      if (mysqlRows && mysqlRows.length > 0) {
+        for (const mr of mysqlRows) {
+          const wd = mr.WorkDate;
+          const existing = dailyMap.get(wd) || { checkIns: 0, checkOuts: 0, lates: 0, absents: 0 };
+          
+          // Use MAX to ensure we don't lose data, or just overwrite if MySQL is more trustworthy for recent days
+          dailyMap.set(wd, {
+            checkIns: Math.max(existing.checkIns, Number(mr.checkIns || 0)),
+            checkOuts: Math.max(existing.checkOuts, Number(mr.checkOuts || 0)),
+            lates: Math.max(existing.lates, Number(mr.lates || 0)),
+            absents: Math.max(existing.absents, Number(mr.absents || 0))
+          });
+        }
+      }
+    } catch (mysqlErr) {
+      console.warn("[Calendar API] MySQL overlay failed:", mysqlErr);
+    }
+
+    // 3. Format result
+    const result = Array.from(dailyMap.entries())
+      .map(([wd, val]) => {
+        const formattedWorkDate = wd.length === 8 ? `${wd.substring(0,4)}-${wd.substring(4,6)}-${wd.substring(6,8)}` : wd;
+        return {
+          date: formattedWorkDate,
+          ...val
+        };
+      })
+      .sort((a, b) => a.date.localeCompare(b.date));
+
+    return NextResponse.json(result);
+
 
   } catch (error) {
     console.warn("BigQuery Fetch Failed, returning mock data. Error details:", error);

@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
   Users,
+  Bell,
   History,
   RefreshCw,
   LogOut,
@@ -17,6 +18,7 @@ import { useSession, signOut } from "next-auth/react";
 const navItems = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/admin/members", label: "구성원 현황", icon: Users },
+  { href: "/admin/notifications", label: "알림 관리", icon: Bell },
   { href: "/admin/logs", label: "기록 수정 로그", icon: History },
   { href: "/admin/sync", label: "동기화 상태", icon: RefreshCw },
 ];

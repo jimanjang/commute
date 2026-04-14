@@ -84,21 +84,35 @@ export async function GET(request: Request) {
     
     // 1.5 MySQL Overlay (Immediately reflect changes made via Admin Web)
     let mysqlMap = new Map();
+    let personMap = new Map(); // Store permanent person data like Email
+    
     try {
       const pool = (await import("@/lib/mysql")).default;
       const kstNow = new Date(new Date().getTime() + (9 * 60 * 60 * 1000));
       const kstTodayStr = kstNow.toISOString().slice(0, 10).replace(/-/g, '');
+      
+      // Fetch attendance history for overlay
       const [mysqlRows]: any = await pool.query(
         "SELECT Name, WSTime, WCTime, bLate, bAbsent, ModifyUser, ModifyTime FROM t_secom_workhistory WHERE WorkDate = ?",
         [dbDateParam || kstTodayStr]
       );
-
 
       if (mysqlRows && mysqlRows.length > 0) {
         for (const r of mysqlRows) {
           mysqlMap.set(r.Name, r);
         }
       }
+
+      // Fetch permanent person data (Email)
+      const [personRows]: any = await pool.query("SELECT Sabun, Name, Email FROM t_secom_person");
+      if (personRows && personRows.length > 0) {
+        for (const p of personRows) {
+          // Use Sabun as primary key if available, else Name
+          if (p.Sabun) personMap.set(p.Sabun, p);
+          else personMap.set(p.Name, p);
+        }
+      }
+
     } catch (mysqlErr) {
       console.warn("[Auth] MySQL overlay failed for dashboard:", mysqlErr);
     }
@@ -108,6 +122,10 @@ export async function GET(request: Request) {
       // Use MySQL data if available, otherwise use BigQuery data
       const fresh = mysqlMap.get(bu.name) || bu;
       
+      // Get stored Email from MySQL Person Map
+      const personInfo = (bu.sabun && personMap.get(bu.sabun)) || personMap.get(bu.name) || {};
+      const storedEmail = personInfo.Email || "";
+
       let status = "미출근";
       if (fresh.WSTime || fresh.checkIn) {
         status = "출근";
@@ -120,6 +138,7 @@ export async function GET(request: Request) {
         name: bu.name?.trim() || "이름없음",
         displayName: bu.name?.trim() || "이름없음",
         sabun: bu.sabun,
+        email: storedEmail,
         team: bu.team || bu.department || "-",
         part: bu.part || "",
         workGroup: bu.workGroup || "-",
