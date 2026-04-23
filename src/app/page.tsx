@@ -164,7 +164,7 @@ function DashboardContent() {
   const filteredUsers = allUsersData.filter(user => {
     if (filterType === 'all') return true;
     if (filterType === 'present') return user.checkIn !== "-";
-    if (filterType === 'lateMissing') return user.status === "지각" || user.status === "미출근" || user.status === "결근";
+    if (filterType === 'lateMissing') return user.status === "지각" || user.status === "미출근" || user.status === "결근" || user.checkOut === "-";
     if (filterType === 'modified') return user.isModified;
     return true;
   });

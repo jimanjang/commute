@@ -63,6 +63,7 @@ export function TriggerModal({ isOpen, onClose, onSave, initialData }: TriggerMo
                 >
                   <option value="checkin_confirm">출근 확인 알림</option>
                   <option value="reminder">미출근 리마인더</option>
+                  <option value="attendance_smart_alert">근태 통합 알림 (Smart Alert)</option>
                 </select>
                 <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
               </div>
@@ -93,6 +94,7 @@ export function TriggerModal({ isOpen, onClose, onSave, initialData }: TriggerMo
                 >
                   <option value="DAY_TIMER">일 단위 타이머</option>
                   <option value="MINUTE_TIMER">분 단위 타이머</option>
+                  <option value="SPECIFIC_TIME">매일 특정 시간</option>
                 </select>
                 <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
               </div>
@@ -101,18 +103,29 @@ export function TriggerModal({ isOpen, onClose, onSave, initialData }: TriggerMo
             <div className="space-y-2">
               <label className="text-[13px] font-bold text-gray-600">시간 선택</label>
               <div className="relative group">
-                <select 
-                  value={timeValue}
-                  onChange={(e) => setTimeValue(e.target.value)}
-                  className="w-full appearance-none bg-white border border-gray-200 rounded-md px-4 py-2.5 text-[13px] outline-none group-hover:border-blue-400 transition-colors shadow-sm"
-                >
-                  {Array.from({ length: 24 }).map((_, i) => (
-                    <option key={i} value={i.toString().padStart(2, '0')}>
-                      {i.toString().padStart(2, '0')}:00 ~ {(i+1).toString().padStart(2, '0')}:00 사이
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                {timeType === 'SPECIFIC_TIME' ? (
+                  <input 
+                    type="time"
+                    value={timeValue}
+                    onChange={(e) => setTimeValue(e.target.value)}
+                    className="w-full bg-white border border-gray-200 rounded-md px-4 py-2.5 text-[13px] outline-none group-hover:border-blue-400 transition-colors shadow-sm"
+                  />
+                ) : (
+                  <>
+                    <select 
+                      value={timeValue}
+                      onChange={(e) => setTimeValue(e.target.value)}
+                      className="w-full appearance-none bg-white border border-gray-200 rounded-md px-4 py-2.5 text-[13px] outline-none group-hover:border-blue-400 transition-colors shadow-sm"
+                    >
+                      {Array.from({ length: 24 }).map((_, i) => (
+                        <option key={i} value={i.toString().padStart(2, '0')}>
+                          {i.toString().padStart(2, '0')}:00 ~ {(i+1).toString().padStart(2, '0')}:00 사이
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                  </>
+                )}
               </div>
             </div>
           </div>

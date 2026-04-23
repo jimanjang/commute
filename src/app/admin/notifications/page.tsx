@@ -19,7 +19,10 @@ import {
   ExternalLink,
   ChevronRight,
   MoreVertical,
-  Users
+  Users,
+  History,
+  FileText,
+  AlertTriangle
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
@@ -33,10 +36,12 @@ export default function NotificationsPage() {
   
   // Members State (Manual Run)
   const [users, setUsers] = useState<any[]>([]);
+  const [logs, setLogs] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isLogsLoading, setIsLogsLoading] = useState(false);
   const [search, setSearch] = useState("");
   const [selectedSabuns, setSelectedSabuns] = useState<Set<string>>(new Set());
-  const [activeTab, setActiveTab] = useState<'triggers' | 'manual'>('triggers');
+  const [activeTab, setActiveTab] = useState<'triggers' | 'manual' | 'logs'>('triggers');
   
   const [sendingStatus, setSendingStatus] = useState<'idle' | 'sending' | 'success' | 'error'>('idle');
   const [results, setResults] = useState<any>(null);
@@ -69,10 +74,28 @@ export default function NotificationsPage() {
     }
   }, []);
 
+  // Fetch Logs
+  const fetchLogs = useCallback(async () => {
+    setIsLogsLoading(true);
+    try {
+      const res = await fetch('/api/admin/bot/triggers/logs');
+      if (res.ok) {
+        setLogs(await res.json());
+      }
+    } catch (err) {
+      console.error("Failed to fetch logs:", err);
+    } finally {
+      setIsLogsLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     fetchTriggers();
     fetchUsers();
-  }, [fetchTriggers, fetchUsers]);
+    if (activeTab === 'logs') {
+      fetchLogs();
+    }
+  }, [fetchTriggers, fetchUsers, fetchLogs, activeTab]);
 
   // Trigger Handlers
   const handleSaveTrigger = async (data: any) => {
@@ -114,6 +137,7 @@ export default function NotificationsPage() {
       if (res.ok) {
         alert(`${data.targets}명 중 ${data.sent}명에게 알림 발송을 완료했습니다.`);
         fetchTriggers();
+        if (activeTab === 'logs') fetchLogs();
       }
     } catch (err) {
       alert("트리거 실행 실패");
@@ -168,15 +192,24 @@ export default function NotificationsPage() {
          >
            내 트리거
          </button>
-         <button 
-           onClick={() => setActiveTab('manual')}
-           className={cn(
-             "pb-4 text-sm font-bold transition-all border-b-2 px-2",
-             activeTab === 'manual' ? "border-blue-500 text-blue-600" : "border-transparent text-gray-400 hover:text-gray-600"
-           )}
-         >
-           수동 즉시 발송
-         </button>
+          <button 
+            onClick={() => setActiveTab('manual')}
+            className={cn(
+              "pb-4 text-sm font-bold transition-all border-b-2 px-2",
+              activeTab === 'manual' ? "border-blue-500 text-blue-600" : "border-transparent text-gray-400 hover:text-gray-600"
+            )}
+          >
+            수동 즉시 발송
+          </button>
+          <button 
+            onClick={() => setActiveTab('logs')}
+            className={cn(
+              "pb-4 text-sm font-bold transition-all border-b-2 px-2",
+              activeTab === 'logs' ? "border-blue-500 text-blue-600" : "border-transparent text-gray-400 hover:text-gray-600"
+            )}
+          >
+            알림 발송 이력
+          </button>
       </div>
 
       {activeTab === 'triggers' ? (
@@ -207,30 +240,47 @@ export default function NotificationsPage() {
                    <tr key={trigger.id} className="hover:bg-blue-50/5 transition-colors group">
                      <td className="px-8 py-6">
                         <div className="flex items-center space-x-3">
-                           <div className={cn(
-                             "w-10 h-10 rounded-xl flex items-center justify-center shadow-sm",
-                             trigger.function_name === 'reminder' ? "bg-orange-50 text-orange-500" : "bg-emerald-50 text-emerald-500"
-                           )}>
-                              {trigger.function_name === 'reminder' ? <AlertCircle className="w-5 h-5" /> : <CheckCircle2 className="w-5 h-5" />}
-                           </div>
+                            <div className={cn(
+                              "w-10 h-10 rounded-xl flex items-center justify-center shadow-sm",
+                              trigger.function_name === 'reminder' ? "bg-orange-50 text-orange-500" : 
+                              trigger.function_name === 'attendance_smart_alert' ? "bg-indigo-50 text-indigo-500" :
+                              "bg-emerald-50 text-emerald-500"
+                            )}>
+                               {trigger.function_name === 'reminder' ? <AlertCircle className="w-5 h-5" /> : 
+                                trigger.function_name === 'attendance_smart_alert' ? <Bell className="w-5 h-5" /> :
+                                <CheckCircle2 className="w-5 h-5" />}
+                            </div>
                            <div>
-                              <p className="text-sm font-black text-slate-800">
-                                {trigger.function_name === 'reminder' ? "미출근 리마인더" : "출근 확인 알림"}
-                              </p>
+                               <p className="text-sm font-black text-slate-800">
+                                 {trigger.function_name === 'reminder' ? "미출근 리마인더" : 
+                                  trigger.function_name === 'attendance_smart_alert' ? "근태 통합 알림 (Smart)" :
+                                  "출근 확인 알림"}
+                               </p>
                               <p className="text-[11px] text-gray-400 font-bold">{trigger.function_name}</p>
                            </div>
                         </div>
                      </td>
                      <td className="px-8 py-6">
                         <div className="flex flex-col">
-                           <span className="text-xs font-bold text-slate-700">시간 기반</span>
-                           <span className="text-[11px] text-gray-400 font-bold">매일 {trigger.time_value}:00시경 발송</span>
-                           <div className="flex items-center mt-1 space-x-1.5 opacity-80">
-                              <Users className="w-3 h-3 text-indigo-400" />
-                              <span className="text-[10px] font-black text-indigo-500 uppercase tracking-tighter">
-                                {trigger.targets?.length > 0 ? `${trigger.targets.length}명 지정됨` : "전체 발송"}
-                              </span>
-                           </div>
+                            <span className="text-xs font-bold text-slate-700">
+                               {trigger.time_type === 'SPECIFIC_TIME' ? '매일 특정 시간' : 
+                                trigger.time_type === 'MINUTE_TIMER' ? '분 단위' : '시간 기반'}
+                            </span>
+                            <span className="text-[11px] text-gray-400 font-bold">
+                               {trigger.time_type === 'SPECIFIC_TIME' ? (
+                                  `매일 ${trigger.time_value} 발송`
+                               ) : trigger.time_type === 'MINUTE_TIMER' ? (
+                                  `매 ${trigger.time_value}분마다 발송`
+                               ) : (
+                                  `매일 ${trigger.time_value}:00시경 발송`
+                               )}
+                            </span>
+                            <div className="flex items-center mt-1 space-x-1.5 opacity-80">
+                               <Users className="w-3 h-3 text-indigo-400" />
+                               <span className="text-[10px] font-black text-indigo-500 uppercase tracking-tighter">
+                                 {trigger.targets?.length > 0 ? `${trigger.targets.length}명 지정됨` : "전체 발송"}
+                               </span>
+                            </div>
                         </div>
                      </td>
                      <td className="px-8 py-6">
@@ -276,10 +326,8 @@ export default function NotificationsPage() {
              </table>
            </div>
         </div>
-      ) : (
-        /* Manual Sending Section - Previous UI */
+      ) : activeTab === 'manual' ? (
         <div className="animate-in fade-in duration-300 space-y-6">
-           {/* Previous UI components for manual bulk sending */}
            <div className="bg-white rounded-[40px] border border-gray-100 shadow-sm overflow-hidden">
              <div className="p-8 border-b border-gray-100 flex items-center justify-between">
                 <div className="flex items-center bg-gray-50 px-6 py-3 rounded-[20px] w-full max-w-sm border border-gray-100">
@@ -295,7 +343,6 @@ export default function NotificationsPage() {
                 <button 
                   onClick={() => {
                     if (selectedSabuns.size === 0) return;
-                    // Logic to send to selected
                     alert(`${selectedSabuns.size}명에게 즉시 발송합니다.`);
                   }}
                   disabled={selectedSabuns.size === 0}
@@ -305,7 +352,6 @@ export default function NotificationsPage() {
                   <span>{selectedSabuns.size}명 즉시 발송</span>
                 </button>
              </div>
-             {/* Simple list of targets */}
              <div className="p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {targetUsers.map(user => (
                   <div 
@@ -333,6 +379,64 @@ export default function NotificationsPage() {
                     {selectedSabuns.has(user.sabun) ? <CheckSquare className="w-4 h-4 text-blue-500" /> : <Square className="w-4 h-4 text-gray-200" />}
                   </div>
                 ))}
+             </div>
+           </div>
+        </div>
+      ) : (
+        /* Notification Logs Section */
+        <div className="animate-in fade-in duration-300">
+           <div className="bg-white rounded-[32px] border border-gray-100 shadow-sm overflow-hidden">
+             <div className="overflow-x-auto">
+               <table className="w-full text-left">
+                 <thead>
+                   <tr className="bg-gray-50/50">
+                     <th className="px-8 py-4 text-[11px] font-black text-gray-400 uppercase tracking-widest">일시</th>
+                     <th className="px-8 py-4 text-[11px] font-black text-gray-400 uppercase tracking-widest">트리거 / 유형</th>
+                     <th className="px-8 py-4 text-[11px] font-black text-gray-400 uppercase tracking-widest">수신자</th>
+                     <th className="px-8 py-4 text-[11px] font-black text-gray-400 uppercase tracking-widest">결과</th>
+                     <th className="px-8 py-4 text-[11px] font-black text-gray-400 uppercase tracking-widest text-right">상세</th>
+                   </tr>
+                 </thead>
+                 <tbody className="divide-y divide-gray-50">
+                   {isLogsLoading ? (
+                     <tr><td colSpan={5} className="px-8 py-20 text-center"><Loader2 className="w-6 h-6 animate-spin mx-auto text-gray-300" /></td></tr>
+                   ) : logs.length === 0 ? (
+                     <tr><td colSpan={5} className="px-8 py-20 text-center text-gray-400 font-bold text-sm">발송 이력이 없습니다.</td></tr>
+                   ) : logs.map((log) => (
+                     <tr key={log.id} className="hover:bg-gray-50/50 transition-colors">
+                       <td className="px-8 py-4 whitespace-nowrap">
+                         <p className="text-[11px] font-bold text-slate-500">{format(new Date(log.created_at), "MM.dd HH:mm:ss")}</p>
+                       </td>
+                       <td className="px-8 py-4">
+                         <div className="flex flex-col">
+                           <span className="text-[13px] font-black text-slate-800">{log.trigger_name}</span>
+                           <span className="text-[10px] text-gray-400 font-bold uppercase">{log.notify_type}</span>
+                         </div>
+                       </td>
+                       <td className="px-8 py-4">
+                         <div className="flex flex-col">
+                           <span className="text-[13px] font-black text-slate-800">{log.name}</span>
+                           <span className="text-[10px] text-gray-400 font-bold">{log.email}</span>
+                         </div>
+                       </td>
+                       <td className="px-8 py-4">
+                          <div className={cn(
+                            "inline-flex items-center px-2 py-0.5 rounded text-[10px] font-black tracking-tight",
+                            log.status === 'success' ? "bg-emerald-50 text-emerald-600" : "bg-red-50 text-red-600"
+                          )}>
+                             {log.status === 'success' ? <CheckCircle2 className="w-3 h-3 mr-1" /> : <AlertTriangle className="w-3 h-3 mr-1" />}
+                             {log.status === 'success' ? "성공" : "실패"}
+                          </div>
+                       </td>
+                       <td className="px-8 py-4 text-right">
+                          <span className="text-[11px] text-gray-400 font-medium">
+                             {log.status === 'failure' ? log.error_message : (log.notify_type === 'checkin' ? "출근 확인" : "리마인더")}
+                          </span>
+                       </td>
+                     </tr>
+                   ))}
+                 </tbody>
+               </table>
              </div>
            </div>
         </div>

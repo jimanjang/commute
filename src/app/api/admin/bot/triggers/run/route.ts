@@ -3,6 +3,7 @@ import pool from "@/lib/mysql";
 import { BigQuery } from "@google-cloud/bigquery";
 import { sendSlackBotNotification } from "@/lib/slack";
 import path from "path";
+import { getKstDate } from "@/lib/time";
 
 export async function POST(request: Request) {
   try {
@@ -17,7 +18,7 @@ export async function POST(request: Request) {
     const triggerTargets = new Set(targetRows.map((t: any) => t.sabun));
 
     // 2. Execution Logic
-    const kstNow = new Date(new Date().getTime() + (9 * 60 * 60 * 1000));
+    const kstNow = getKstDate();
     const todayStr = kstNow.toISOString().split('T')[0];
     
     const keyFilename = path.join(process.cwd(), "service-account.json");
@@ -50,7 +51,9 @@ export async function POST(request: Request) {
 
     // 3. Filter targets based on function_name
     let targets = [];
-    if (trigger.function_name === 'reminder') {
+    if (trigger.function_name === 'attendance_smart_alert') {
+      targets = users; // Send to everyone (Smart logic in loop)
+    } else if (trigger.function_name === 'reminder') {
       targets = users.filter(u => u.status === "지각" || u.status === "미출근" || u.status === "결근");
     } else if (trigger.function_name === 'checkin_confirm') {
       targets = users.filter(u => u.status === "출근");
@@ -65,10 +68,38 @@ export async function POST(request: Request) {
     let successCount = 0;
     for (const user of targets) {
       if (!user.email) continue;
+      
+      let notifyType: 'checkin' | 'reminder' = 'reminder';
+      if (trigger.function_name === 'attendance_smart_alert') {
+        notifyType = (user.status === "출근" || user.status === "지각") ? 'checkin' : 'reminder';
+      } else {
+        notifyType = trigger.function_name === 'reminder' ? 'reminder' : 'checkin';
+      }
+
+      let logStatus = 'success';
+      let errorMsg = null;
+
       try {
-        await sendSlackBotNotification(user.email, trigger.function_name === 'reminder' ? 'reminder' : 'checkin' as any, { time: user.checkIn });
+        await sendSlackBotNotification(user.email, notifyType, { 
+          time: user.checkIn,
+          name: user.name
+        });
         successCount++;
-      } catch (err) { console.error(`Run Trigger Error (${user.name}):`, err); }
+      } catch (err: any) { 
+        logStatus = 'failure';
+        errorMsg = err.message;
+        console.error(`Run Trigger Error (${user.name}):`, err); 
+      }
+
+      // Record Execution Log
+      try {
+        await pool.query(
+          "INSERT INTO t_secom_trigger_log (trigger_id, trigger_name, sabun, name, email, notify_type, status, error_message) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+          [id, trigger.function_name, user.sabun, user.name, user.email, notifyType, logStatus, errorMsg]
+        );
+      } catch (logErr) {
+        console.error("[Trigger Log] Failed to save log entry:", logErr);
+      }
     }
 
     // 5. Update last_run

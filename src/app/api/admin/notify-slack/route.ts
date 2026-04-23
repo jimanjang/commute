@@ -2,10 +2,11 @@ import { NextResponse } from "next/server";
 import { BigQuery } from "@google-cloud/bigquery";
 import { sendSlackDMByEmail } from "@/lib/slack";
 import path from "path";
+import { getKstDate } from "@/lib/time";
 
 export async function POST(request: Request) {
   try {
-    const kstNow = new Date(new Date().getTime() + (9 * 60 * 60 * 1000));
+    const kstNow = getKstDate();
     const todayStr = kstNow.toISOString().split('T')[0];
     const dbDateParam = todayStr.replace(/-/g, '');
 
@@ -17,6 +18,7 @@ export async function POST(request: Request) {
       SELECT 
         p.Name as name, 
         w.WSTime as checkIn,
+        w.WCTime as checkOut,
         w.bLate,
         w.bAbsent
       FROM 
@@ -35,7 +37,7 @@ export async function POST(request: Request) {
     try {
       const pool = (await import("@/lib/mysql")).default;
       const [mysqlRows]: any = await pool.query(
-        "SELECT Name, WSTime, bLate, bAbsent FROM t_secom_workhistory WHERE WorkDate = ?",
+        "SELECT Name, WSTime, WCTime, bLate, bAbsent FROM t_secom_workhistory WHERE WorkDate = ?",
         [dbDateParam]
       );
       for (const r of mysqlRows) {
@@ -55,12 +57,18 @@ export async function POST(request: Request) {
       } else if (fresh.bAbsent === "1" || fresh.bAbsent === 1) {
         status = "결근";
       }
-      return { name: bu.name, status };
+      
+      const checkOut = (fresh.WCTime || fresh.checkOut) ? 
+          ((fresh.WCTime || fresh.checkOut).length >= 14 ? 
+            `${(fresh.WCTime || fresh.checkOut).substring(8, 10)}:${(fresh.WCTime || fresh.checkOut).substring(10, 12)}` : 
+            (fresh.WCTime || fresh.checkOut).substring(0, 5)) : "-";
+
+      return { name: bu.name, status, checkOut };
     });
 
     const totalCount = users.length;
     const presentCount = users.filter(u => u.status === "출근" || u.status === "지각").length;
-    const lateMissingUsers = users.filter(u => u.status === "지각" || u.status === "미출근" || u.status === "결근");
+    const lateMissingUsers = users.filter(u => u.status === "지각" || u.status === "미출근" || u.status === "결근" || u.checkOut === "-");
 
     // 4. Construct Slack Message
     const lateList = lateMissingUsers

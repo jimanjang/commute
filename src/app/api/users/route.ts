@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
 import { BigQuery } from "@google-cloud/bigquery";
 import path from "path";
+import { getKstDate } from "@/lib/time";
 
 function isToday(dateString: string | null) {
   if (!dateString) return true;
-  const today = new Date();
-  const kst = new Date(today.getTime() + (9 * 60 * 60 * 1000));
+  const kst = getKstDate();
   const todayStr = kst.toISOString().split('T')[0];
   return dateString === todayStr;
 }
@@ -88,7 +88,7 @@ export async function GET(request: Request) {
     
     try {
       const pool = (await import("@/lib/mysql")).default;
-      const kstNow = new Date(new Date().getTime() + (9 * 60 * 60 * 1000));
+      const kstNow = getKstDate();
       const kstTodayStr = kstNow.toISOString().slice(0, 10).replace(/-/g, '');
       
       // Fetch attendance history for overlay
@@ -161,7 +161,7 @@ export async function GET(request: Request) {
 
     // 3. 실시간 통계 산출 (Merged Data 기준)
     const todayCheckIn = users.filter(u => u.status === "출근" || u.status === "지각").length;
-    const lateMissing = users.filter(u => u.status === "지각" || u.status === "미출근" || u.status === "결근").length;
+    const lateMissing = users.filter(u => u.status === "지각" || u.status === "미출근" || u.status === "결근" || u.checkOut === "-").length;
     const modifiedCount = users.filter(u => u.isModified).length;
 
     return NextResponse.json({ 
