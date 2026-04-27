@@ -7,16 +7,10 @@ import { getKstDate } from "@/lib/time";
 export async function GET() {
   try {
     const kstNow = getKstDate();
-    const isWeekend = kstNow.getDay() === 0 || kstNow.getDay() === 6;
-    
-    // We typically don't run commute triggers on weekends.
-    if (isWeekend) {
-      return NextResponse.json({ status: "weekend_skip", date: format(kstNow, "yyyy-MM-dd HH:mm") });
-    }
-
     const currentTime = format(kstNow, "HH:mm");
     const currentHour = format(kstNow, "HH");
     const todayStr = format(kstNow, "yyyy-MM-dd");
+    const currentDay = kstNow.getDay().toString(); // 0(Sun) ~ 6(Sat)
 
     // 1. Fetch all active triggers
     const [triggers]: any = await pool.query(
@@ -28,6 +22,12 @@ export async function GET() {
     // 2. Identify triggers to run
     for (const trigger of triggers) {
       let shouldRun = false;
+
+      // Day of week check (Default: 1,2,3,4,5 if null/empty)
+      const allowedDays = (trigger.days_of_week || "1,2,3,4,5").split(",");
+      if (!allowedDays.includes(currentDay)) {
+        continue; // Skip this trigger for today
+      }
 
       // Check if already run today
       const lastRunDate = trigger.last_run ? format(new Date(trigger.last_run), "yyyy-MM-dd") : "";
@@ -44,6 +44,10 @@ export async function GET() {
         if (trigger.time_value === currentHour && !alreadyRunToday) {
           shouldRun = true;
         }
+      } else if (trigger.time_type === 'REALTIME_CHECKIN') {
+        // Realtime checkin: run every poll cycle (every 30s).
+        // Dedup is handled inside the run logic by checking trigger_log.
+        shouldRun = true;
       }
 
       if (shouldRun) {

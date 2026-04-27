@@ -18,7 +18,27 @@ export function TriggerModal({ isOpen, onClose, onSave, initialData }: TriggerMo
   const [timeType, setTimeType] = useState(initialData?.time_type || "DAY_TIMER");
   const [timeValue, setTimeValue] = useState(initialData?.time_value || "09");
   const [targets, setTargets] = useState<string[]>(initialData?.targets || []);
+  const [daysOfWeek, setDaysOfWeek] = useState(initialData?.days_of_week || "1,2,3,4,5");
   const [isMemberModalOpen, setIsMemberModalOpen] = useState(false);
+
+  const days = [
+    { label: '일', value: '0' },
+    { label: '월', value: '1' },
+    { label: '화', value: '2' },
+    { label: '수', value: '3' },
+    { label: '목', value: '4' },
+    { label: '금', value: '5' },
+    { label: '토', value: '6' }
+  ];
+
+  const toggleDay = (value: string) => {
+    const current = daysOfWeek.split(',').filter((d: string) => d !== '');
+    if (current.includes(value)) {
+      setDaysOfWeek(current.filter((d: string) => d !== value).join(','));
+    } else {
+      setDaysOfWeek([...current, value].sort().join(','));
+    }
+  };
 
   if (!isOpen) return null;
 
@@ -30,7 +50,8 @@ export function TriggerModal({ isOpen, onClose, onSave, initialData }: TriggerMo
       time_type: timeType,
       time_value: timeValue,
       is_active: initialData?.is_active ?? true,
-      targets: targets
+      targets: targets,
+      days_of_week: daysOfWeek
     });
   };
 
@@ -95,11 +116,13 @@ export function TriggerModal({ isOpen, onClose, onSave, initialData }: TriggerMo
                   <option value="DAY_TIMER">일 단위 타이머</option>
                   <option value="MINUTE_TIMER">분 단위 타이머</option>
                   <option value="SPECIFIC_TIME">매일 특정 시간</option>
+                  <option value="REALTIME_CHECKIN">🔔 지문 인식 시 (실시간)</option>
                 </select>
                 <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
               </div>
             </div>
 
+            {timeType !== 'REALTIME_CHECKIN' && (
             <div className="space-y-2">
               <label className="text-[13px] font-bold text-gray-600">시간 선택</label>
               <div className="relative group">
@@ -127,6 +150,40 @@ export function TriggerModal({ isOpen, onClose, onSave, initialData }: TriggerMo
                   </>
                 )}
               </div>
+            </div>
+            )}
+
+            {timeType === 'REALTIME_CHECKIN' && (
+              <div className="p-4 bg-blue-50 border border-blue-100 rounded-lg">
+                <p className="text-[12px] font-bold text-blue-700">🔔 실시간 모드</p>
+                <p className="text-[11px] text-blue-500 mt-1">지문 인식이 감지되면 30초 이내에 슬랙 알림이 자동 발송됩니다. 당일 최초 출근 기록에 대해서만 1회 발송됩니다.</p>
+              </div>
+            )}
+
+            <div className="space-y-4 pt-4 border-t border-gray-100">
+               <label className="text-[13px] font-bold text-gray-600">실행 요일 선택</label>
+               <div className="flex items-center space-x-2">
+                 {days.map(day => {
+                   const isActive = daysOfWeek.split(',').includes(day.value);
+                   return (
+                     <button
+                       key={day.value}
+                       onClick={() => toggleDay(day.value)}
+                       className={cn(
+                         "w-10 h-10 rounded-xl text-sm font-black transition-all border",
+                         isActive 
+                           ? "bg-blue-600 border-blue-600 text-white shadow-md shadow-blue-100" 
+                           : "bg-white border-gray-200 text-gray-400 hover:border-blue-200"
+                       )}
+                     >
+                       {day.label}
+                     </button>
+                   );
+                 })}
+               </div>
+               <p className="text-[10px] text-gray-400 font-bold">
+                 * 선택한 요일에만 트리거가 동작합니다. (평일 기본값: 월~금)
+               </p>
             </div>
           </div>
 

@@ -33,23 +33,23 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { id, function_name, event_source, time_type, time_value, is_active, targets } = body;
+    const { id, function_name, event_source, time_type, time_value, is_active, targets, days_of_week } = body;
 
     let triggerId = id;
 
     if (id) {
       // Update Trigger
       await pool.query(
-        "UPDATE t_secom_trigger SET function_name = ?, event_source = ?, time_type = ?, time_value = ?, is_active = ? WHERE id = ?",
-        [function_name, event_source, time_type, time_value, is_active, id]
+        "UPDATE t_secom_trigger SET function_name = ?, event_source = ?, time_type = ?, time_value = ?, is_active = ?, days_of_week = ? WHERE id = ?",
+        [function_name, event_source, time_type, time_value, is_active, days_of_week || '1,2,3,4,5', id]
       );
       // Delete old targets
       await pool.query("DELETE FROM t_secom_trigger_target WHERE trigger_id = ?", [id]);
     } else {
       // Create Trigger
       const [res]: any = await pool.query(
-        "INSERT INTO t_secom_trigger (function_name, event_source, time_type, time_value, is_active) VALUES (?, ?, ?, ?, ?)",
-        [function_name, event_source || 'TIME_DRIVEN', time_type || 'DAY_TIMER', time_value, is_active ?? true]
+        "INSERT INTO t_secom_trigger (function_name, event_source, time_type, time_value, is_active, days_of_week) VALUES (?, ?, ?, ?, ?, ?)",
+        [function_name, event_source || 'TIME_DRIVEN', time_type || 'DAY_TIMER', time_value, is_active ?? true, days_of_week || '1,2,3,4,5']
       );
       triggerId = res.insertId;
     }

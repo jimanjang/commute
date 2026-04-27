@@ -244,6 +244,7 @@ export default function NotificationsPage() {
                               "w-10 h-10 rounded-xl flex items-center justify-center shadow-sm",
                               trigger.function_name === 'reminder' ? "bg-orange-50 text-orange-500" : 
                               trigger.function_name === 'attendance_smart_alert' ? "bg-indigo-50 text-indigo-500" :
+                              trigger.time_type === 'REALTIME_CHECKIN' ? "bg-violet-50 text-violet-500" :
                               "bg-emerald-50 text-emerald-500"
                             )}>
                                {trigger.function_name === 'reminder' ? <AlertCircle className="w-5 h-5" /> : 
@@ -252,7 +253,8 @@ export default function NotificationsPage() {
                             </div>
                            <div>
                                <p className="text-sm font-black text-slate-800">
-                                 {trigger.function_name === 'reminder' ? "미출근 리마인더" : 
+                                 {trigger.time_type === 'REALTIME_CHECKIN' ? "🔔 지문 인식 시 실시간 알림" :
+                                  trigger.function_name === 'reminder' ? "미출근 리마인더" : 
                                   trigger.function_name === 'attendance_smart_alert' ? "근태 통합 알림 (Smart)" :
                                   "출근 확인 알림"}
                                </p>
@@ -264,18 +266,35 @@ export default function NotificationsPage() {
                         <div className="flex flex-col">
                             <span className="text-xs font-bold text-slate-700">
                                {trigger.time_type === 'SPECIFIC_TIME' ? '매일 특정 시간' : 
-                                trigger.time_type === 'MINUTE_TIMER' ? '분 단위' : '시간 기반'}
+                                trigger.time_type === 'MINUTE_TIMER' ? '분 단위' : 
+                                trigger.time_type === 'REALTIME_CHECKIN' ? '🔔 실시간 (지문 인식)' : '시간 기반'}
                             </span>
                             <span className="text-[11px] text-gray-400 font-bold">
                                {trigger.time_type === 'SPECIFIC_TIME' ? (
                                   `매일 ${trigger.time_value} 발송`
                                ) : trigger.time_type === 'MINUTE_TIMER' ? (
                                   `매 ${trigger.time_value}분마다 발송`
+                               ) : trigger.time_type === 'REALTIME_CHECKIN' ? (
+                                  '지문 인식 즉시 (30초 이내)'
                                ) : (
                                   `매일 ${trigger.time_value}:00시경 발송`
                                )}
                             </span>
                             <div className="flex items-center mt-1 space-x-1.5 opacity-80">
+                               <div className="flex space-x-0.5">
+                                 {['일', '월', '화', '수', '목', '금', '토'].map((d, i) => {
+                                   const active = (trigger.days_of_week || "1,2,3,4,5").split(',').includes(i.toString());
+                                   return (
+                                     <span key={i} className={cn(
+                                       "text-[9px] font-black w-3.5 h-3.5 flex items-center justify-center rounded-sm",
+                                       active ? "bg-blue-100 text-blue-600" : "bg-gray-100 text-gray-300"
+                                     )}>
+                                       {d}
+                                     </span>
+                                   );
+                                 })}
+                               </div>
+                               <span className="text-gray-300">|</span>
                                <Users className="w-3 h-3 text-indigo-400" />
                                <span className="text-[10px] font-black text-indigo-500 uppercase tracking-tighter">
                                  {trigger.targets?.length > 0 ? `${trigger.targets.length}명 지정됨` : "전체 발송"}

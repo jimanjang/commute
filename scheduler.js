@@ -15,7 +15,7 @@ const CHECK_URL = `http://localhost:${PORT}/api/admin/bot/triggers/check`;
 console.log('\x1b[36m%s\x1b[0m', '------------------------------------------');
 console.log('\x1b[36m%s\x1b[0m', '  🚀 Commute Tracker Scheduler Starting');
 console.log('\x1b[36m%s\x1b[0m', `  Target: ${CHECK_URL}`);
-console.log('\x1b[36m%s\x1b[0m', '  Interval: 60 seconds');
+console.log('\x1b[36m%s\x1b[0m', '  Interval: 30 seconds');
 console.log('\x1b[36m%s\x1b[0m', '------------------------------------------');
 
 function checkTriggers() {
@@ -63,4 +63,4 @@ function checkTriggers() {
 checkTriggers();
 
 // Schedule every 60 seconds
-setInterval(checkTriggers, 60 * 1000);
+setInterval(checkTriggers, 30 * 1000);
