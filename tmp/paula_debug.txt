@@ -1,0 +1,9 @@
+TARGETS: KS2602010, KS2511003, KS2509003, KS2512001
+PAULA_SABUN: KS2512001
+IN_TARGETS: true
+LOG_COUNT: 5
+LOG: Alice Jeon(앨리스) | KS2603014 | checkin | success | 2026-04-27T15:00:26.000Z
+LOG: Sina(시나) | KS2511003 | checkin | success | 2026-04-27T15:00:27.000Z
+LOG: Tombo(톰보) | KS2509003 | checkin | success | 2026-04-27T15:00:27.000Z
+LOG: Paula(파울라) | KS2512001 | checkin | success | 2026-04-27T15:00:28.000Z
+LOG: Laika(라이카) | KS2602010 | checkin | success | 2026-04-27T15:00:28.000Z

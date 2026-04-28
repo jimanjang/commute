@@ -38,20 +38,20 @@ export async function POST(request: Request) {
         [dbDateParam]
       );
 
-      if (checkinRows.length === 0) {
-        return NextResponse.json({ success: true, targets: 0, sent: 0, message: "No check-ins today yet" });
-      }
-
-      // 2) Get already-notified sabuns for this trigger today
-      const [alreadySent]: any = await pool.query(
-        `SELECT DISTINCT sabun FROM t_secom_trigger_log WHERE trigger_id = ? AND DATE(created_at) = CURDATE() AND status = 'success'`,
-        [id]
+      // 2) Get already-notified entries for this trigger today (with notify_type)
+      //    Use KST date explicitly since MySQL server may be in UTC
+      const [alreadySentRows]: any = await pool.query(
+        `SELECT DISTINCT sabun, notify_type FROM t_secom_trigger_log WHERE trigger_id = ? AND DATE(CONVERT_TZ(created_at, '+00:00', '+09:00')) = ? AND status = 'success'`,
+        [id, todayStr]
       );
-      const alreadySentSet = new Set(alreadySent.map((r: any) => r.sabun));
+      const alreadySentCheckin = new Set(alreadySentRows.filter((r: any) => r.notify_type === 'checkin').map((r: any) => r.sabun));
+      const alreadySentReminder = new Set(alreadySentRows.filter((r: any) => r.notify_type === 'reminder').map((r: any) => r.sabun));
 
-      // 3) Build list of users who checked in today
+      // 3) Build set of names who checked in today
+      const checkedInNames = new Set(checkinRows.map((row: any) => row.Name));
+
+      // 4) Build list of checked-in users for notification
       const checkedInUsers = checkinRows.map((row: any) => {
-        // Find sabun from personMap by name
         let sabun = '';
         let email = '';
         for (const [key, val] of personMap.entries()) {
@@ -64,17 +64,17 @@ export async function POST(request: Request) {
         return { name: row.Name, sabun, email, checkIn: row.WSTime };
       });
 
-      // 4) Filter: only new check-ins (not already notified today)
-      let targets = checkedInUsers.filter((u: any) => u.email && !alreadySentSet.has(u.sabun));
+      // 5) Filter: only new check-ins (not already notified today)
+      let checkinTargets = checkedInUsers.filter((u: any) => u.email && !alreadySentCheckin.has(u.sabun));
 
       // Apply Targeting Filter if triggerTargets is not empty
       if (triggerTargets.size > 0) {
-        targets = targets.filter((u: any) => triggerTargets.has(u.sabun));
+        checkinTargets = checkinTargets.filter((u: any) => triggerTargets.has(u.sabun));
       }
 
-      // 5) Send Notifications
+      // 6) Send Check-in Notifications
       let successCount = 0;
-      for (const user of targets) {
+      for (const user of checkinTargets) {
         let logStatus = 'success';
         let errorMsg = null;
 
@@ -90,7 +90,6 @@ export async function POST(request: Request) {
           console.error(`[Realtime Checkin] Error (${user.name}):`, err);
         }
 
-        // Record Execution Log
         try {
           await pool.query(
             "INSERT INTO t_secom_trigger_log (trigger_id, trigger_name, sabun, name, email, notify_type, status, error_message) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
@@ -101,10 +100,65 @@ export async function POST(request: Request) {
         }
       }
 
+      // ─── 7) After 10:00 AM KST: Send reminders to un-checked-in target members (1회만) ───
+      let reminderCount = 0;
+      const kstHour = kstNow.getHours();
+
+      if (kstHour >= 10 && alreadySentReminder.size === 0) {
+        // Only run if NO reminders have been sent today for this trigger (1회 제한)
+
+        // Build list of all target members
+        let allTargetPersons: any[] = [];
+        for (const [, val] of personMap.entries()) {
+          const p = val as any;
+          if (p.Email) {
+            allTargetPersons.push({ name: p.Name, sabun: p.Sabun, email: p.Email });
+          }
+        }
+
+        // If trigger has specific targets, filter to those
+        if (triggerTargets.size > 0) {
+          allTargetPersons = allTargetPersons.filter(u => triggerTargets.has(u.sabun));
+        }
+
+        // Filter: not checked in today
+        const reminderTargets = allTargetPersons.filter(u =>
+          !checkedInNames.has(u.name)
+        );
+
+        for (const user of reminderTargets) {
+          let logStatus = 'success';
+          let errorMsg = null;
+
+          try {
+            await sendSlackBotNotification(user.email, 'reminder', { name: user.name });
+            reminderCount++;
+          } catch (err: any) {
+            logStatus = 'failure';
+            errorMsg = err.message;
+            console.error(`[Realtime Reminder] Error (${user.name}):`, err);
+          }
+
+          try {
+            await pool.query(
+              "INSERT INTO t_secom_trigger_log (trigger_id, trigger_name, sabun, name, email, notify_type, status, error_message) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+              [id, trigger.function_name, user.sabun, user.name, user.email, 'reminder', logStatus, errorMsg]
+            );
+          } catch (logErr) {
+            console.error("[Trigger Log] Failed to save log entry:", logErr);
+          }
+        }
+      }
+
       // Update last_run
       await pool.query("UPDATE t_secom_trigger SET last_run = CURRENT_TIMESTAMP WHERE id = ?", [id]);
 
-      return NextResponse.json({ success: true, targets: targets.length, sent: successCount });
+      return NextResponse.json({
+        success: true,
+        checkin_sent: successCount,
+        reminder_sent: reminderCount,
+        targets: checkinTargets.length + reminderCount
+      });
     }
 
     // ─── Standard triggers (TIME_DRIVEN) ───

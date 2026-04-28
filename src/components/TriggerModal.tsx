@@ -2,7 +2,7 @@
 
 import { X, ChevronDown, Plus, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { MemberSelectModal } from "./MemberSelectModal";
 
 interface TriggerModalProps {
@@ -20,6 +20,18 @@ export function TriggerModal({ isOpen, onClose, onSave, initialData }: TriggerMo
   const [targets, setTargets] = useState<string[]>(initialData?.targets || []);
   const [daysOfWeek, setDaysOfWeek] = useState(initialData?.days_of_week || "1,2,3,4,5");
   const [isMemberModalOpen, setIsMemberModalOpen] = useState(false);
+
+  // Sync form state when initialData or isOpen changes
+  useEffect(() => {
+    if (isOpen) {
+      setFunctionName(initialData?.function_name || "reminder");
+      setEventSource(initialData?.event_source || "TIME_DRIVEN");
+      setTimeType(initialData?.time_type || "DAY_TIMER");
+      setTimeValue(initialData?.time_value || "09");
+      setTargets(initialData?.targets || []);
+      setDaysOfWeek(initialData?.days_of_week || "1,2,3,4,5");
+    }
+  }, [isOpen, initialData]);
 
   const days = [
     { label: '일', value: '0' },

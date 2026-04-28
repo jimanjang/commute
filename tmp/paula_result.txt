@@ -1,0 +1,10 @@
+Trigger targets: [ 'KS2602010', 'KS2511003', 'KS2509003', 'KS2512001' ]
+Paula Sabun: KS2512001
+Paula in targets: true
+
+Today's logs:
+   Alice Jeon(????? | checkin | success | KST: 2026. 4. 28. AM 12:00:26
+   Sina(???) | checkin | success | KST: 2026. 4. 28. AM 12:00:27
+   Tombo(???) | checkin | success | KST: 2026. 4. 28. AM 12:00:27
+   Paula(????? | checkin | success | KST: 2026. 4. 28. AM 12:00:28
+   Laika(????? | checkin | success | KST: 2026. 4. 28. AM 12:00:28

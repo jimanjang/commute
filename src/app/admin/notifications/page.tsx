@@ -304,7 +304,7 @@ export default function NotificationsPage() {
                      </td>
                      <td className="px-8 py-6">
                         <p className="text-[11px] font-bold text-slate-500">
-                          {trigger.last_run ? format(new Date(trigger.last_run), "yyyy. MM. dd. a hh:mm:ss") : "실행 이력 없음"}
+                          {trigger.last_run ? new Date(trigger.last_run).toLocaleString("ko-KR", { timeZone: "Asia/Seoul", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }) : "실행 이력 없음"}
                         </p>
                      </td>
                      <td className="px-8 py-6 text-center">
