@@ -5,7 +5,8 @@ import path from "path";
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const nameParam = searchParams.get("name") || "본인";
-  const currentYearMonth = new Date().toISOString().slice(0, 7); // "YYYY-MM"
+  const { getTodayStr } = await import("@/lib/time");
+  const currentYearMonth = getTodayStr().slice(0, 7); // "YYYY-MM"
   const yearMonthParam = searchParams.get("yearMonth") || currentYearMonth; 
 
 

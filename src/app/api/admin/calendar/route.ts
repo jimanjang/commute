@@ -4,7 +4,9 @@ import path from "path";
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
-  const yearMonthParam = searchParams.get("yearMonth") || "2026-03"; // YYYY-MM
+  const { getTodayStr } = await import("@/lib/time");
+  const defaultYearMonth = getTodayStr().slice(0, 7);
+  const yearMonthParam = searchParams.get("yearMonth") || defaultYearMonth; // YYYY-MM
 
   try {
     const keyFilename = path.join(process.cwd(), "service-account.json");

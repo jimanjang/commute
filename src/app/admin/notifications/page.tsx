@@ -41,7 +41,10 @@ export default function NotificationsPage() {
   const [isLogsLoading, setIsLogsLoading] = useState(false);
   const [search, setSearch] = useState("");
   const [selectedSabuns, setSelectedSabuns] = useState<Set<string>>(new Set());
-  const [activeTab, setActiveTab] = useState<'triggers' | 'manual' | 'logs'>('triggers');
+  const [activeTab, setActiveTab] = useState<'triggers' | 'manual' | 'logs' | 'gaps'>('triggers');
+  
+  const [gaps, setGaps] = useState<any[]>([]);
+  const [isGapsLoading, setIsGapsLoading] = useState(false);
   
   const [sendingStatus, setSendingStatus] = useState<'idle' | 'sending' | 'success' | 'error'>('idle');
   const [results, setResults] = useState<any>(null);
@@ -89,13 +92,31 @@ export default function NotificationsPage() {
     }
   }, []);
 
+  const fetchGaps = useCallback(async () => {
+    setIsGapsLoading(true);
+    try {
+      const res = await fetch('/api/admin/bot/triggers/gaps');
+      if (res.ok) {
+        const data = await res.json();
+        setGaps(data.gaps || []);
+      }
+    } catch (err) {
+      console.error("Failed to fetch gaps:", err);
+    } finally {
+      setIsGapsLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     fetchTriggers();
     fetchUsers();
     if (activeTab === 'logs') {
       fetchLogs();
     }
-  }, [fetchTriggers, fetchUsers, fetchLogs, activeTab]);
+    if (activeTab === 'gaps') {
+      fetchGaps();
+    }
+  }, [fetchTriggers, fetchUsers, fetchLogs, fetchGaps, activeTab]);
 
   // Trigger Handlers
   const handleSaveTrigger = async (data: any) => {
@@ -143,6 +164,24 @@ export default function NotificationsPage() {
       alert("트리거 실행 실패");
     } finally {
       setSendingStatus('idle');
+    }
+  };
+
+  const handleRetryGap = async (gap: any) => {
+    try {
+      const res = await fetch('/api/admin/bot/triggers/gaps', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(gap)
+      });
+      if (res.ok) {
+        alert("알림 재발송을 완료했습니다.");
+        fetchGaps();
+      } else {
+        alert("알림 재발송 실패");
+      }
+    } catch (err) {
+      alert("알림 재발송 중 오류 발생");
     }
   };
 
@@ -209,6 +248,15 @@ export default function NotificationsPage() {
             )}
           >
             알림 발송 이력
+          </button>
+          <button 
+            onClick={() => setActiveTab('gaps')}
+            className={cn(
+              "pb-4 text-sm font-bold transition-all border-b-2 px-2",
+              activeTab === 'gaps' ? "border-blue-500 text-blue-600" : "border-transparent text-gray-400 hover:text-gray-600"
+            )}
+          >
+            누락 감지 및 재발송
           </button>
       </div>
 
@@ -398,6 +446,80 @@ export default function NotificationsPage() {
                     {selectedSabuns.has(user.sabun) ? <CheckSquare className="w-4 h-4 text-blue-500" /> : <Square className="w-4 h-4 text-gray-200" />}
                   </div>
                 ))}
+             </div>
+           </div>
+        </div>
+      ) : activeTab === 'gaps' ? (
+        /* Gaps Detection Section */
+        <div className="animate-in fade-in duration-300">
+           <div className="bg-white rounded-[32px] border border-gray-100 shadow-sm overflow-hidden">
+             <div className="p-8 border-b border-gray-100 flex items-center justify-between">
+                <div>
+                  <h3 className="text-lg font-black text-slate-900">누락 감지 및 재발송</h3>
+                  <p className="text-xs text-gray-400 font-bold mt-1">출근 기록은 있으나 실시간 알림이 발송되지 않은 대상자를 확인합니다.</p>
+                </div>
+                <button 
+                  onClick={fetchGaps}
+                  className="p-2 text-gray-400 hover:text-blue-500 transition-colors"
+                  title="새로고침"
+                >
+                  <History className={cn("w-5 h-5", isGapsLoading && "animate-spin")} />
+                </button>
+             </div>
+             <div className="overflow-x-auto">
+                <table className="w-full text-left">
+                  <thead>
+                    <tr className="bg-gray-50/50">
+                      <th className="px-8 py-4 text-[11px] font-black text-gray-400 uppercase tracking-widest">출근 시간</th>
+                      <th className="px-8 py-4 text-[11px] font-black text-gray-400 uppercase tracking-widest">트리거</th>
+                      <th className="px-8 py-4 text-[11px] font-black text-gray-400 uppercase tracking-widest">대상자</th>
+                      <th className="px-8 py-4 text-[11px] font-black text-gray-400 uppercase tracking-widest text-right">관리</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {isGapsLoading ? (
+                      <tr><td colSpan={4} className="px-8 py-20 text-center"><Loader2 className="w-6 h-6 animate-spin mx-auto text-gray-300" /></td></tr>
+                    ) : gaps.length === 0 ? (
+                      <tr>
+                        <td colSpan={4} className="px-8 py-32 text-center">
+                          <div className="w-16 h-16 bg-emerald-50 rounded-3xl flex items-center justify-center mx-auto mb-4 border border-emerald-100">
+                            <CheckCircle2 className="w-8 h-8 text-emerald-400" />
+                          </div>
+                          <p className="font-black text-gray-400">누락된 알림이 없습니다. 모든 대상자에게 정상 발송되었습니다.</p>
+                        </td>
+                      </tr>
+                    ) : gaps.map((gap, idx) => (
+                      <tr key={idx} className="hover:bg-orange-50/10 transition-colors">
+                        <td className="px-8 py-4">
+                          <p className="text-sm font-black text-orange-600 bg-orange-50 px-2 py-0.5 rounded-md inline-block">
+                            {gap.checkIn.substring(8,10)}:{gap.checkIn.substring(10,12)}
+                          </p>
+                        </td>
+                        <td className="px-8 py-4">
+                          <div className="flex flex-col">
+                            <span className="text-[13px] font-black text-slate-800">#{gap.trigger_id} {gap.trigger_name}</span>
+                            <span className="text-[10px] text-gray-400 font-bold uppercase">실시간 출근 확인</span>
+                          </div>
+                        </td>
+                        <td className="px-8 py-4">
+                          <div className="flex flex-col">
+                            <span className="text-[13px] font-black text-slate-800">{gap.name} ({gap.sabun})</span>
+                            <span className="text-[10px] text-gray-400 font-bold">{gap.email}</span>
+                          </div>
+                        </td>
+                        <td className="px-8 py-4 text-right">
+                          <button 
+                            onClick={() => handleRetryGap(gap)}
+                            className="px-4 py-2 bg-indigo-600 text-white text-[11px] font-black rounded-xl shadow-md shadow-indigo-100 flex items-center space-x-2 hover:bg-indigo-700 transition-all ml-auto"
+                          >
+                            <Send className="w-3 h-3" />
+                            <span>재발송</span>
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
              </div>
            </div>
         </div>

@@ -1,12 +1,11 @@
 import { NextResponse } from "next/server";
 import { BigQuery } from "@google-cloud/bigquery";
 import path from "path";
-import { getKstDate } from "@/lib/time";
+import { getKstDate, getTodayStr } from "@/lib/time";
 
 function isToday(dateString: string | null) {
   if (!dateString) return true;
-  const kst = getKstDate();
-  const todayStr = kst.toISOString().split('T')[0];
+  const todayStr = getTodayStr();
   return dateString === todayStr;
 }
 
@@ -23,60 +22,35 @@ export async function GET(request: Request) {
 
     // 1. BigQuery에서 실시간 정보 조회
     let bqQuery = "";
-    if (targetIsToday) {
+    if (targetIsToday && !dateParam) {
+      // Default "Today" view without explicit date selection
       bqQuery = `
         SELECT 
-          p.Name as name, 
-          p.Sabun as sabun, 
-          p.Department as department, 
-          p.Team as team, 
-          p.Part as part, 
-          p.WorkGroup as workGroup, 
-          p.WorkStatus as workStatus, 
-          p.JoiningDate as joiningDate,
-          w.WSTime as checkIn,
-          w.WCTime as checkOut,
-          w.bLate,
-          w.bAbsent,
-          w.ModifyUser
-        FROM 
-          \`secom-data.secom.person\` p
-        LEFT JOIN 
-          \`secom-data.secom.workhistory_today\` w ON p.Name = w.Name
-        WHERE 
-          p.Name IS NOT NULL AND p.Name != '' AND p.Name != '미등록사용자'
+          p.Name as name, p.Sabun as sabun, p.Department as department, p.Team as team, p.Part as part, 
+          p.WorkGroup as workGroup, p.WorkStatus as workStatus, p.JoiningDate as joiningDate,
+          w.WSTime as checkIn, w.WCTime as checkOut, w.bLate, w.bAbsent, w.ModifyUser
+        FROM \`secom-data.secom.person\` p
+        LEFT JOIN \`secom-data.secom.workhistory_today\` w ON p.Name = w.Name
+        WHERE p.Name IS NOT NULL AND p.Name != '' AND p.Name != '미등록사용자'
           AND p.WorkGroup IN ('002', '006', '007')
-        ORDER BY 
-          p.Name ASC
+        ORDER BY p.Name ASC
       `;
     } else {
+      // Explicit date selection (including today)
       bqQuery = `
         SELECT 
-          p.Name as name, 
-          p.Sabun as sabun, 
-          p.Department as department, 
-          p.Team as team, 
-          p.Part as part, 
-          p.WorkGroup as workGroup, 
-          p.WorkStatus as workStatus, 
-          p.JoiningDate as joiningDate,
-          w.WSTime as checkIn,
-          w.WCTime as checkOut,
-          w.bLate,
-          w.bAbsent,
-          w.ModifyUser
-        FROM 
-          \`secom-data.secom.person\` p
+          p.Name as name, p.Sabun as sabun, p.Department as department, p.Team as team, p.Part as part, 
+          p.WorkGroup as workGroup, p.WorkStatus as workStatus, p.JoiningDate as joiningDate,
+          w.WSTime as checkIn, w.WCTime as checkOut, w.bLate, w.bAbsent, w.ModifyUser
+        FROM \`secom-data.secom.person\` p
         LEFT JOIN (
            SELECT Name, WSTime, WCTime, bLate, bAbsent, ModifyUser FROM \`secom-data.secom.workhistory\` WHERE WorkDate = '${dbDateParam}'
            UNION ALL
            SELECT Name, WSTime, WCTime, bLate, bAbsent, ModifyUser FROM \`secom-data.secom.workhistory_today\` WHERE WorkDate = '${dbDateParam}'
         ) w ON p.Name = w.Name
-        WHERE 
-          p.Name IS NOT NULL AND p.Name != '' AND p.Name != '미등록사용자'
+        WHERE p.Name IS NOT NULL AND p.Name != '' AND p.Name != '미등록사용자'
           AND p.WorkGroup IN ('002', '006', '007')
-        ORDER BY 
-          p.Name ASC
+        ORDER BY p.Name ASC
       `;
     }
 
@@ -88,8 +62,8 @@ export async function GET(request: Request) {
     
     try {
       const pool = (await import("@/lib/mysql")).default;
-      const kstNow = getKstDate();
-      const kstTodayStr = kstNow.toISOString().slice(0, 10).replace(/-/g, '');
+      const todayStr = getTodayStr();
+      const kstTodayStr = todayStr.replace(/-/g, '');
       
       // Fetch attendance history for overlay
       const [mysqlRows]: any = await pool.query(

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import pool from "@/lib/mysql";
 import { format } from "date-fns";
-import { getKstDate } from "@/lib/time";
+import { getKstDate, getTodayStr } from "@/lib/time";
 
 // This endpoint is called by an external scheduler (cron) to check if any triggers need to be fired.
 export async function GET() {
@@ -9,7 +9,7 @@ export async function GET() {
     const kstNow = getKstDate();
     const currentTime = format(kstNow, "HH:mm");
     const currentHour = format(kstNow, "HH");
-    const todayStr = format(kstNow, "yyyy-MM-dd");
+    const todayStr = getTodayStr();
     const currentDay = kstNow.getDay().toString(); // 0(Sun) ~ 6(Sat)
 
     // 1. Fetch all active triggers
