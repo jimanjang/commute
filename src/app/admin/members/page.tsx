@@ -15,14 +15,12 @@ import {
 import { cn } from "@/lib/utils";
 import Link from "next/link";
 import { EditAttendanceModal } from "@/components/EditAttendanceModal";
-import { BulkEmailModal } from "@/components/BulkEmailModal";
 import { format } from "date-fns";
 
 export default function MembersPage() {
   const [users, setUsers] = useState<any[]>([]);
   const [search, setSearch] = useState("");
   const [isLoading, setIsLoading] = useState(true);
-  const [isBulkEmailOpen, setIsBulkEmailOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editUser, setEditUser] = useState<any>(null);
 
@@ -67,13 +65,6 @@ export default function MembersPage() {
           </h1>
           <p className="text-sm text-gray-400 font-bold mt-1 ml-10">총 {users.length}명의 구성원이 등록되어 있습니다.</p>
         </div>
-        <button 
-          onClick={() => setIsBulkEmailOpen(true)}
-          className="px-5 py-3 bg-indigo-50 text-indigo-700 text-sm font-black rounded-2xl border border-indigo-100 shadow-sm hover:bg-indigo-100 transition-all flex items-center space-x-2 active:scale-95"
-        >
-          <Mail className="w-4 h-4" />
-          <span>이메일 일괄 관리</span>
-        </button>
       </div>
 
       <div className="bg-white rounded-[40px] border border-gray-100 shadow-sm overflow-hidden">
@@ -205,12 +196,6 @@ export default function MembersPage() {
         />
       )}
 
-      <BulkEmailModal 
-        isOpen={isBulkEmailOpen}
-        onClose={() => setIsBulkEmailOpen(false)}
-        onSuccess={fetchUsers}
-        users={users}
-      />
     </div>
   );
 }

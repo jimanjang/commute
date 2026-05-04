@@ -33,7 +33,7 @@ export async function GET() {
       const lastRunDate = trigger.last_run ? format(new Date(trigger.last_run), "yyyy-MM-dd") : "";
       const alreadyRunToday = lastRunDate === todayStr;
 
-      if (trigger.time_type === 'SPECIFIC_TIME') {
+      if (trigger.time_type === 'SPECIFIC_TIME' || trigger.time_type === 'TEAM_CHANNEL_CHECKIN') {
         // Match specific HH:mm
         if (trigger.time_value === currentTime && !alreadyRunToday) {
           shouldRun = true;

@@ -1,13 +1,13 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { 
-  Bell, 
-  Search, 
-  CheckCircle2, 
-  AlertCircle, 
-  Send, 
-  Clock, 
+import {
+  Bell,
+  Search,
+  CheckCircle2,
+  AlertCircle,
+  Send,
+  Clock,
   Info,
   Loader2,
   Trash2,
@@ -22,7 +22,10 @@ import {
   Users,
   History,
   FileText,
-  AlertTriangle
+  AlertTriangle,
+  Hash,
+  RefreshCw,
+  Save
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
@@ -41,13 +44,20 @@ export default function NotificationsPage() {
   const [isLogsLoading, setIsLogsLoading] = useState(false);
   const [search, setSearch] = useState("");
   const [selectedSabuns, setSelectedSabuns] = useState<Set<string>>(new Set());
-  const [activeTab, setActiveTab] = useState<'triggers' | 'manual' | 'logs' | 'gaps'>('triggers');
+  const [activeTab, setActiveTab] = useState<'triggers' | 'manual' | 'logs' | 'gaps' | 'team_channels'>('triggers');
   
   const [gaps, setGaps] = useState<any[]>([]);
   const [isGapsLoading, setIsGapsLoading] = useState(false);
   
   const [sendingStatus, setSendingStatus] = useState<'idle' | 'sending' | 'success' | 'error'>('idle');
   const [results, setResults] = useState<any>(null);
+
+  // Team Channels State
+  const [channelMappings, setChannelMappings] = useState<any[]>([]);
+  const [slackChannelList, setSlackChannelList] = useState<any[]>([]);
+  const [isChannelsLoading, setIsChannelsLoading] = useState(false);
+  const [isSlackListLoading, setIsSlackListLoading] = useState(false);
+  const [newMapping, setNewMapping] = useState({ team_name: '', channel_id: '' });
 
   // Fetch Triggers
   const fetchTriggers = useCallback(async () => {
@@ -107,16 +117,40 @@ export default function NotificationsPage() {
     }
   }, []);
 
+  const fetchChannelMappings = useCallback(async () => {
+    setIsChannelsLoading(true);
+    try {
+      const res = await fetch('/api/admin/slack-channels');
+      if (res.ok) setChannelMappings(await res.json());
+    } catch (e) {
+      console.error('Failed to fetch channel mappings:', e);
+    } finally {
+      setIsChannelsLoading(false);
+    }
+  }, []);
+
+  const fetchSlackChannelList = useCallback(async () => {
+    setIsSlackListLoading(true);
+    try {
+      const res = await fetch('/api/admin/slack-channels/list');
+      if (res.ok) setSlackChannelList(await res.json());
+    } catch (e) {
+      console.error('Failed to fetch Slack channels:', e);
+    } finally {
+      setIsSlackListLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     fetchTriggers();
     fetchUsers();
-    if (activeTab === 'logs') {
-      fetchLogs();
+    if (activeTab === 'logs') fetchLogs();
+    if (activeTab === 'gaps') fetchGaps();
+    if (activeTab === 'team_channels') {
+      fetchChannelMappings();
+      fetchSlackChannelList();
     }
-    if (activeTab === 'gaps') {
-      fetchGaps();
-    }
-  }, [fetchTriggers, fetchUsers, fetchLogs, fetchGaps, activeTab]);
+  }, [fetchTriggers, fetchUsers, fetchLogs, fetchGaps, fetchChannelMappings, fetchSlackChannelList, activeTab]);
 
   // Trigger Handlers
   const handleSaveTrigger = async (data: any) => {
@@ -156,7 +190,11 @@ export default function NotificationsPage() {
       });
       const data = await res.json();
       if (res.ok) {
-        alert(`${data.targets}명 중 ${data.sent}명에게 알림 발송을 완료했습니다.`);
+        if (data.channels_sent !== undefined) {
+          alert(`${data.teams}개 팀 중 ${data.channels_sent}개 채널에 요약 알림 발송을 완료했습니다.`);
+        } else {
+          alert(`${data.targets}명 중 ${data.sent}명에게 알림 발송을 완료했습니다.`);
+        }
         fetchTriggers();
         if (activeTab === 'logs') fetchLogs();
       }
@@ -193,6 +231,8 @@ export default function NotificationsPage() {
     (u.sabun && u.sabun.includes(search)) ||
     (u.team && u.team.toLowerCase().includes(search.toLowerCase()))
   );
+
+  const uniqueTeams = Array.from(new Set(users.map((u: any) => u.team))).filter(t => t && t !== '-' && t !== '007').sort();
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-20">
@@ -249,7 +289,7 @@ export default function NotificationsPage() {
           >
             알림 발송 이력
           </button>
-          <button 
+          <button
             onClick={() => setActiveTab('gaps')}
             className={cn(
               "pb-4 text-sm font-bold transition-all border-b-2 px-2",
@@ -257,6 +297,15 @@ export default function NotificationsPage() {
             )}
           >
             누락 감지 및 재발송
+          </button>
+          <button
+            onClick={() => setActiveTab('team_channels')}
+            className={cn(
+              "pb-4 text-sm font-bold transition-all border-b-2 px-2",
+              activeTab === 'team_channels' ? "border-blue-500 text-blue-600" : "border-transparent text-gray-400 hover:text-gray-600"
+            )}
+          >
+            팀 채널 설정
           </button>
       </div>
 
@@ -522,6 +571,140 @@ export default function NotificationsPage() {
                 </table>
              </div>
            </div>
+        </div>
+      ) : activeTab === 'team_channels' ? (
+        <div className="animate-in fade-in duration-300 space-y-6">
+          {/* Add New Mapping */}
+          <div className="bg-white rounded-[32px] border border-gray-100 shadow-sm p-8">
+            <h3 className="text-base font-black text-slate-900 mb-6 flex items-center gap-2">
+              <Hash className="w-5 h-5 text-indigo-500" />
+              팀 ↔ Slack 채널 연결 추가
+            </h3>
+            <div className="flex items-end gap-4">
+              <div className="flex-1">
+                <label className="text-[11px] font-black text-gray-400 uppercase tracking-widest mb-2 block">팀명 (GWS 부서명 기준)</label>
+                <select
+                  value={newMapping.team_name}
+                  onChange={e => setNewMapping(p => ({ ...p, team_name: e.target.value }))}
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm font-bold focus:outline-none focus:ring-2 focus:ring-indigo-200 bg-white"
+                >
+                  <option value="">팀 선택...</option>
+                  {uniqueTeams.map((t: any) => (
+                    <option key={t} value={t}>{t}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex-1">
+                <label className="text-[11px] font-black text-gray-400 uppercase tracking-widest mb-2 block">
+                  Slack 채널
+                  {isSlackListLoading && <Loader2 className="w-3 h-3 animate-spin inline ml-2" />}
+                </label>
+                <select
+                  value={newMapping.channel_id}
+                  onChange={e => setNewMapping(p => ({ ...p, channel_id: e.target.value }))}
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm font-bold focus:outline-none focus:ring-2 focus:ring-indigo-200 bg-white"
+                >
+                  <option value="">채널 선택...</option>
+                  {slackChannelList.map(ch => (
+                    <option key={ch.id} value={ch.id}>{ch.is_private ? '🔒' : '#'} {ch.name} ({ch.num_members}명)</option>
+                  ))}
+                </select>
+              </div>
+              <button
+                disabled={!newMapping.team_name || !newMapping.channel_id}
+                onClick={async () => {
+                  const ch = slackChannelList.find(c => c.id === newMapping.channel_id);
+                  await fetch('/api/admin/slack-channels', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ...newMapping, channel_name: ch ? `#${ch.name}` : '' })
+                  });
+                  setNewMapping({ team_name: '', channel_id: '' });
+                  fetchChannelMappings();
+                }}
+                className="px-6 py-3 bg-indigo-600 text-white text-sm font-black rounded-xl flex items-center gap-2 disabled:opacity-40 hover:bg-indigo-700 transition-all"
+              >
+                <Save className="w-4 h-4" />
+                저장
+              </button>
+            </div>
+          </div>
+
+          {/* Mapping List */}
+          <div className="bg-white rounded-[32px] border border-gray-100 shadow-sm overflow-hidden">
+            <div className="p-6 border-b border-gray-100 flex items-center justify-between">
+              <h3 className="text-base font-black text-slate-900">등록된 팀 채널 ({channelMappings.length}개)</h3>
+              <button onClick={fetchChannelMappings} className="p-2 text-gray-400 hover:text-indigo-500 transition-colors">
+                <RefreshCw className={cn("w-4 h-4", isChannelsLoading && "animate-spin")} />
+              </button>
+            </div>
+            {channelMappings.length === 0 ? (
+              <div className="py-20 text-center">
+                <Hash className="w-10 h-10 text-gray-200 mx-auto mb-3" />
+                <p className="text-sm font-bold text-gray-400">등록된 팀 채널 매핑이 없습니다.</p>
+              </div>
+            ) : (
+              <table className="w-full text-left">
+                <thead>
+                  <tr className="bg-gray-50/50">
+                    <th className="px-8 py-4 text-[11px] font-black text-gray-400 uppercase tracking-widest">팀명</th>
+                    <th className="px-8 py-4 text-[11px] font-black text-gray-400 uppercase tracking-widest">Slack 채널</th>
+                    <th className="px-8 py-4 text-[11px] font-black text-gray-400 uppercase tracking-widest text-center">활성화</th>
+                    <th className="px-8 py-4 text-[11px] font-black text-gray-400 uppercase tracking-widest text-right">관리</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {channelMappings.map(m => (
+                    <tr key={m.id} className="hover:bg-indigo-50/10 transition-colors">
+                      <td className="px-8 py-5">
+                        <span className="text-sm font-black text-slate-800">{m.team_name}</span>
+                      </td>
+                      <td className="px-8 py-5">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-bold text-indigo-600">{m.channel_name || m.channel_id}</span>
+                          <span className="text-[11px] text-gray-400 font-mono">{m.channel_id}</span>
+                        </div>
+                      </td>
+                      <td className="px-8 py-5 text-center">
+                        <button
+                          onClick={async () => {
+                            await fetch('/api/admin/slack-channels', {
+                              method: 'PATCH',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ id: m.id, is_active: !m.is_active })
+                            });
+                            fetchChannelMappings();
+                          }}
+                          className={cn(
+                            "px-3 py-1 rounded-full text-[11px] font-black transition-all",
+                            m.is_active ? "bg-emerald-50 text-emerald-600 hover:bg-emerald-100" : "bg-gray-100 text-gray-400 hover:bg-gray-200"
+                          )}
+                        >
+                          {m.is_active ? "ON" : "OFF"}
+                        </button>
+                      </td>
+                      <td className="px-8 py-5 text-right">
+                        <button
+                          onClick={async () => {
+                            if (!confirm(`"${m.team_name}" 채널 매핑을 삭제하시겠습니까?`)) return;
+                            await fetch('/api/admin/slack-channels', {
+                              method: 'DELETE',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ id: m.id })
+                            });
+                            fetchChannelMappings();
+                          }}
+                          className="p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
         </div>
       ) : (
         /* Notification Logs Section */

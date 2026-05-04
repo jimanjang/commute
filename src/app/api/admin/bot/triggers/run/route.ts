@@ -193,7 +193,95 @@ export async function POST(request: Request) {
       });
     }
 
-    // ─── Standard triggers (TIME_DRIVEN) ───
+    // ─── TEAM_CHANNEL_CHECKIN: Team channel summary ───
+    if (trigger.time_type === 'TEAM_CHANNEL_CHECKIN') {
+      const { getGwsUserMap } = await import("@/lib/gws-team");
+      const { WebClient } = await import("@slack/web-api");
+      const slack = new WebClient(process.env.SLACK_TOKEN);
+
+      // 1) 오늘 출근 기록 조회
+      const [checkinRows]: any = await pool.query(
+        `SELECT Name, WSTime FROM t_secom_workhistory WHERE WorkDate = ?`,
+        [dbDateParam]
+      );
+      // Filter out rows where WSTime is empty
+      const validCheckins = checkinRows.filter((r: any) => r.WSTime && r.WSTime.trim() !== "");
+      const checkedInNames = new Set(validCheckins.map((r: any) => r.Name));
+      const wsTimeByName = new Map(validCheckins.map((r: any) => [r.Name, r.WSTime]));
+
+      // 2) 전체 대상자 목록
+      const [allPersonRows]: any = await pool.query(
+        "SELECT Sabun, Name, Email FROM t_secom_person WHERE Email IS NOT NULL AND Email != '' AND RetireDate >= DATE_FORMAT(NOW(), '%Y%m%d')"
+      );
+
+      // 3) GWS에서 사용자 정보 조회 (이메일/이름/사번 다중 매핑)
+      const gwsMap = await getGwsUserMap();
+
+      // 4) 팀별로 그룹핑
+      const teamGroups = new Map<string, { checkin: any[], absent: any[] }>();
+      for (const p of allPersonRows) {
+        const storedEmail = p.Email?.toLowerCase() || "";
+        const firstName = p.Name?.split('(')[0]?.toLowerCase()?.trim() || "";
+        const sabun = p.Sabun || "";
+        
+        const gwsInfo = 
+          (storedEmail && gwsMap.get(storedEmail)) || 
+          (firstName && gwsMap.get(firstName)) || 
+          (sabun && gwsMap.get(sabun)) || 
+          undefined;
+
+        const team = gwsInfo?.team || null;
+        if (!team) continue;
+        if (!teamGroups.has(team)) teamGroups.set(team, { checkin: [], absent: [] });
+        const group = teamGroups.get(team)!;
+        if (checkedInNames.has(p.Name)) {
+          group.checkin.push({ ...p, wsTime: wsTimeByName.get(p.Name) || '' });
+        } else {
+          group.absent.push(p);
+        }
+      }
+
+      // 5) 활성화된 채널 매핑 조회
+      const [channelRows]: any = await pool.query(
+        "SELECT team_name, channel_id, channel_name FROM t_secom_slack_channel WHERE is_active = 1"
+      );
+
+      let channelsSent = 0;
+      for (const ch of channelRows) {
+        const group = teamGroups.get(ch.team_name);
+        if (!group) continue;
+
+        const todayLabel = todayStr; // YYYY-MM-DD
+        const checkinLines = group.checkin.length > 0
+          ? group.checkin.map(u => `• ${u.Name} — ${u.wsTime ? u.wsTime.slice(8,10)+':'+u.wsTime.slice(10,12) : '시각미상'}`).join('\n')
+          : '_(없음)_';
+        const absentLines = group.absent.length > 0
+          ? group.absent.map(u => `• ${u.Name}`).join('\n')
+          : '_(없음)_';
+
+        const text = [
+          `📋 *${ch.team_name} 출근 현황* (${todayLabel})`,
+          ``,
+          `✅ *출근 완료 (${group.checkin.length}명)*`,
+          checkinLines,
+          ``,
+          `⚠️ *미출근 (${group.absent.length}명)*`,
+          absentLines,
+        ].join('\n');
+
+        try {
+          await slack.chat.postMessage({ channel: ch.channel_id, text, mrkdwn: true });
+          channelsSent++;
+          console.log(`[TEAM_CHANNEL] Sent to ${ch.channel_name || ch.channel_id} (${ch.team_name})`);
+        } catch (err: any) {
+          console.error(`[TEAM_CHANNEL] Error sending to ${ch.team_name}:`, err.message);
+        }
+      }
+
+      await pool.query("UPDATE t_secom_trigger SET last_run = CURRENT_TIMESTAMP WHERE id = ?", [id]);
+      return NextResponse.json({ success: true, channels_sent: channelsSent, teams: teamGroups.size });
+    }
+
     const bqQuery = `
       SELECT p.Name as name, p.Sabun as sabun, w.WSTime as checkIn, w.bLate, w.bAbsent
       FROM \`secom-data.secom.person\` p

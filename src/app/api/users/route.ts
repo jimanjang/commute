@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { BigQuery } from "@google-cloud/bigquery";
 import path from "path";
 import { getKstDate, getTodayStr } from "@/lib/time";
+import { getGwsUserMap } from "@/lib/gws-team";
 
 function isToday(dateString: string | null) {
   if (!dateString) return true;
@@ -91,14 +92,31 @@ export async function GET(request: Request) {
       console.warn("[Auth] MySQL overlay failed for dashboard:", mysqlErr);
     }
 
+    // 1.6 GWS 오버레이: 다중 키 기반 매핑 (email, firstName, sabun)
+    // 전체 사용자 정보를 단일 GWS API로 로드
+    let gwsMap = new Map<string, { email: string; team: string | null }>();
+    try {
+      gwsMap = await getGwsUserMap();
+    } catch (gwsErr) {
+      console.warn("[GWS] User lookup failed:", gwsErr);
+    }
+
     // 2. 구성원 데이터 매핑
     const users = bqRows.map((bu: any) => {
       // Use MySQL data if available, otherwise use BigQuery data
       const fresh = mysqlMap.get(bu.name) || bu;
       
-      // Get stored Email from MySQL Person Map
+      // 1) MySQL 수동 이메일
       const personInfo = (bu.sabun && personMap.get(bu.sabun)) || personMap.get(bu.name) || {};
-      const storedEmail = personInfo.Email || "";
+      const storedEmail = (personInfo as any).Email || "";
+
+      // 2) 매칭 시도: 이메일 -> 영문 이름(firstName) -> 사번(sabun) 순서
+      const firstName = bu.name?.split('(')[0]?.toLowerCase()?.trim() || "";
+      const gwsInfo = 
+        (storedEmail && gwsMap.get(storedEmail.toLowerCase())) || 
+        (firstName && gwsMap.get(firstName)) || 
+        (bu.sabun && gwsMap.get(bu.sabun)) || 
+        undefined;
 
       let status = "미출근";
       if (fresh.WSTime || fresh.checkIn) {
@@ -112,8 +130,12 @@ export async function GET(request: Request) {
         name: bu.name?.trim() || "이름없음",
         displayName: bu.name?.trim() || "이름없음",
         sabun: bu.sabun,
-        email: storedEmail,
-        team: bu.team || bu.department || "-",
+        email: gwsInfo?.email || storedEmail,
+        team: (() => {
+          // GWS team (organizations.department) 우선 > BQ Team > BQ Department
+          if (gwsInfo?.team) return gwsInfo.team;
+          return bu.team || bu.department || "-";
+        })(),
         part: bu.part || "",
         workGroup: bu.workGroup || "-",
         workStatus: bu.workStatus || "재직",

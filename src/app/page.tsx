@@ -27,7 +27,6 @@ import {
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { EditAttendanceModal } from "@/components/EditAttendanceModal";
-import { BulkEmailModal } from "@/components/BulkEmailModal";
 
 function StatCard({ title, value, icon: Icon, trend, color }: any) {
   return (
@@ -70,8 +69,6 @@ function DashboardContent() {
   const [isSendingSlack, setIsSendingSlack] = useState(false);
   const [isTestingBot, setIsTestingBot] = useState(false);
   const [testTargetEmail, setTestTargetEmail] = useState("laika@daangnservice.com");
-  const [isBulkEmailOpen, setIsBulkEmailOpen] = useState(false);
-
   const searchParams = useSearchParams();
   const router = useRouter();
   const userName = searchParams.get("name") || "전체";
@@ -276,13 +273,6 @@ function DashboardContent() {
                     필터 해제
                   </button>
                 )}
-                <button 
-                  onClick={() => setIsBulkEmailOpen(true)}
-                  className="px-4 py-2.5 bg-indigo-50 text-indigo-700 text-xs font-black rounded-xl border border-indigo-100 hover:bg-indigo-100 transition-all flex items-center space-x-2"
-                >
-                  <Mail className="w-3.5 h-3.5" />
-                  <span>이메일 일괄 관리</span>
-                </button>
                 <Link href="/?name=전체" className="px-5 py-2.5 bg-white text-slate-700 text-sm font-bold rounded-xl border border-gray-200 shadow-sm hover:bg-gray-50 transition-colors inline-flex items-center space-x-2">
                   <ChevronLeft className="w-4 h-4 text-gray-500" />
                   <span>달력으로 돌아가기</span>
@@ -395,12 +385,6 @@ function DashboardContent() {
           />
         )}
 
-        <BulkEmailModal 
-          isOpen={isBulkEmailOpen}
-          onClose={() => setIsBulkEmailOpen(false)}
-          onSuccess={() => fetchData()}
-          users={allUsersData}
-        />
       </div>
     );
   }

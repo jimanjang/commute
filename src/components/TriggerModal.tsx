@@ -129,6 +129,7 @@ export function TriggerModal({ isOpen, onClose, onSave, initialData }: TriggerMo
                   <option value="MINUTE_TIMER">분 단위 타이머</option>
                   <option value="SPECIFIC_TIME">매일 특정 시간</option>
                   <option value="REALTIME_CHECKIN">🔔 지문 인식 시 (실시간)</option>
+                  <option value="TEAM_CHANNEL_CHECKIN">📋 팀 채널 요약 발송</option>
                 </select>
                 <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
               </div>
@@ -138,7 +139,7 @@ export function TriggerModal({ isOpen, onClose, onSave, initialData }: TriggerMo
             <div className="space-y-2">
               <label className="text-[13px] font-bold text-gray-600">시간 선택</label>
               <div className="relative group">
-                {timeType === 'SPECIFIC_TIME' ? (
+                {(timeType === 'SPECIFIC_TIME' || timeType === 'TEAM_CHANNEL_CHECKIN') ? (
                   <input 
                     type="time"
                     value={timeValue}
@@ -169,6 +170,13 @@ export function TriggerModal({ isOpen, onClose, onSave, initialData }: TriggerMo
               <div className="p-4 bg-blue-50 border border-blue-100 rounded-lg">
                 <p className="text-[12px] font-bold text-blue-700">🔔 실시간 모드</p>
                 <p className="text-[11px] text-blue-500 mt-1">지문 인식이 감지되면 30초 이내에 슬랙 알림이 자동 발송됩니다. 당일 최초 출근 기록에 대해서만 1회 발송됩니다.</p>
+              </div>
+            )}
+
+            {timeType === 'TEAM_CHANNEL_CHECKIN' && (
+              <div className="p-4 bg-indigo-50 border border-indigo-100 rounded-lg">
+                <p className="text-[12px] font-bold text-indigo-700">📋 팀 채널 요약 발송</p>
+                <p className="text-[11px] text-indigo-500 mt-1">설정된 팀 채널로 출근 현황 요약 메시지를 발송합니다. 알림 관리 &gt; 팀 채널 설정에서 팀별 Slack 채널을 먼저 등록하세요.</p>
               </div>
             )}
 
