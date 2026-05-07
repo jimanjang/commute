@@ -18,10 +18,23 @@ export async function GET() {
       targetMap.get(t.trigger_id).push(t.sabun);
     }
 
-    const result = triggers.map((tg: any) => ({
-      ...tg,
-      targets: targetMap.get(tg.id) || []
-    }));
+    const result = triggers.map((tg: any) => {
+      const updatedTg = {
+        ...tg,
+        targets: targetMap.get(tg.id) || []
+      };
+      if (updatedTg.created_at) {
+        const d = new Date(updatedTg.created_at);
+        d.setHours(d.getHours() - 9);
+        updatedTg.created_at = d.toISOString();
+      }
+      if (updatedTg.last_run) {
+        const d = new Date(updatedTg.last_run);
+        d.setHours(d.getHours() - 9);
+        updatedTg.last_run = d.toISOString();
+      }
+      return updatedTg;
+    });
 
     return NextResponse.json(result);
   } catch (err: any) {

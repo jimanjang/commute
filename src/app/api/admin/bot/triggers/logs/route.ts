@@ -8,7 +8,16 @@ export async function GET() {
       "SELECT * FROM t_secom_trigger_log ORDER BY created_at DESC LIMIT 100"
     );
 
-    return NextResponse.json(logs);
+    const formattedLogs = logs.map((log: any) => {
+      if (log.created_at) {
+        const d = new Date(log.created_at);
+        d.setHours(d.getHours() - 9);
+        log.created_at = d.toISOString();
+      }
+      return log;
+    });
+
+    return NextResponse.json(formattedLogs);
   } catch (err: any) {
     console.error("[Trigger Logs] GET Error:", err.message);
     return NextResponse.json({ error: err.message }, { status: 500 });

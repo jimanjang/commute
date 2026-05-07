@@ -81,6 +81,16 @@ export async function POST(request: Request) {
       let successCount = 0;
       let waitingCount = 0;
 
+      // Calculate trigger's created_at in KST YYYYMMDDHHMMSS format
+      const tKst = new Date(new Date(trigger.created_at).toLocaleString("en-US", { timeZone: "Asia/Seoul" }));
+      const tY = tKst.getFullYear();
+      const tM = String(tKst.getMonth() + 1).padStart(2, '0');
+      const tD = String(tKst.getDate()).padStart(2, '0');
+      const tH = String(tKst.getHours()).padStart(2, '0');
+      const tm = String(tKst.getMinutes()).padStart(2, '0');
+      const ts = String(tKst.getSeconds()).padStart(2, '0');
+      const triggerCreatedAtKst = `${tY}${tM}${tD}${tH}${tm}${ts}`;
+
       // Filter people who checked in but haven't been processed yet
       for (const [sabun, wsTime] of checkinBySabun.entries()) {
         // If trigger has targets, skip non-targets
@@ -88,6 +98,15 @@ export async function POST(request: Request) {
         
         // Skip if already successfully sent or already waiting
         if (alreadySentCheckin.has(sabun) || alreadyWaiting.has(sabun)) continue;
+
+        // Skip if checkin time is BEFORE the trigger was created
+        if (wsTime && wsTime.trim() !== '') {
+          let paddedWsTime = wsTime.trim();
+          if (paddedWsTime.length === 12) paddedWsTime += '00';
+          if (paddedWsTime < triggerCreatedAtKst) {
+            continue; // Ignore check-ins that occurred before the trigger was created
+          }
+        }
 
         const p = personMap.get(sabun);
         if (!p || !p.Email) continue;
@@ -251,30 +270,37 @@ export async function POST(request: Request) {
         const group = teamGroups.get(ch.team_name);
         if (!group) continue;
 
-        const todayLabel = todayStr; // YYYY-MM-DD
-        const checkinLines = group.checkin.length > 0
-          ? group.checkin.map(u => `• ${u.Name} — ${u.wsTime ? u.wsTime.slice(8,10)+':'+u.wsTime.slice(10,12) : '시각미상'}`).join('\n')
-          : '_(없음)_';
-        const absentLines = group.absent.length > 0
-          ? group.absent.map(u => `• ${u.Name}`).join('\n')
-          : '_(없음)_';
+        // 미출근자가 없으면 메시지 발송 생략
+        if (group.absent.length === 0) continue;
+
+        const absentLines = group.absent.map(u => `    ◦ ${u.Name}`).join('\n');
 
         const text = [
-          `📋 *${ch.team_name} 출근 현황* (${todayLabel})`,
+          `<!channel> 앗! 아직 오늘 출근 등록이 되지 않은 분들이 있어요 🙌`,
+          `혹시 옆자리에 이미 와 계신데 지문만 깜빡하신 거라면…?`,
+          `👉 살짝 알려주세요 ✨`,
           ``,
-          `✅ *출근 완료 (${group.checkin.length}명)*`,
-          checkinLines,
+          `(휴가나 외근이신 분들은 편하게 패스해 주세요!)`,
           ``,
-          `⚠️ *미출근 (${group.absent.length}명)*`,
-          absentLines,
+          `• 미등록자(${group.absent.length}명)`,
+          absentLines
         ].join('\n');
 
         try {
           await slack.chat.postMessage({ channel: ch.channel_id, text, mrkdwn: true });
           channelsSent++;
           console.log(`[TEAM_CHANNEL] Sent to ${ch.channel_name || ch.channel_id} (${ch.team_name})`);
+          // 발송 이력 기록
+          await pool.query(
+            "INSERT INTO t_secom_trigger_log (trigger_id, trigger_name, sabun, name, email, notify_type, status) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            [id, trigger.function_name, null, ch.team_name, ch.channel_name || ch.channel_id, 'team_summary', 'success']
+          );
         } catch (err: any) {
           console.error(`[TEAM_CHANNEL] Error sending to ${ch.team_name}:`, err.message);
+          await pool.query(
+            "INSERT INTO t_secom_trigger_log (trigger_id, trigger_name, sabun, name, email, notify_type, status, error_message) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            [id, trigger.function_name, null, ch.team_name, ch.channel_name || ch.channel_id, 'team_summary', 'failure', err.message]
+          );
         }
       }
 

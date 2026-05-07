@@ -10,6 +10,7 @@ const pool = mysql.createPool({
   connectionLimit: 10,
   queueLimit: 0,
   connectTimeout: 5000,
+  timezone: 'Z',
 });
 
 export default pool;
