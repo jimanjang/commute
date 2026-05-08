@@ -287,14 +287,23 @@ export async function POST(request: Request) {
         ].join('\n');
 
         try {
-          await slack.chat.postMessage({ channel: ch.channel_id, text, mrkdwn: true });
-          channelsSent++;
-          console.log(`[TEAM_CHANNEL] Sent to ${ch.channel_name || ch.channel_id} (${ch.team_name})`);
-          // 발송 이력 기록
-          await pool.query(
-            "INSERT INTO t_secom_trigger_log (trigger_id, trigger_name, sabun, name, email, notify_type, status) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            [id, trigger.function_name, null, ch.team_name, ch.channel_name || ch.channel_id, 'team_summary', 'success']
-          );
+          if (process.env.DRY_RUN === 'true') {
+            console.log(`\x1b[33m[DRY RUN]\x1b[0m Would send team summary to ${ch.channel_name || ch.channel_id} (${ch.team_name}): ${text.replace(/\n/g, ' ')}`);
+            channelsSent++;
+            await pool.query(
+              "INSERT INTO t_secom_trigger_log (trigger_id, trigger_name, sabun, name, email, notify_type, status) VALUES (?, ?, ?, ?, ?, ?, ?)",
+              [id, trigger.function_name, null, ch.team_name, ch.channel_name || ch.channel_id, 'team_summary', 'success']
+            );
+          } else {
+            await slack.chat.postMessage({ channel: ch.channel_id, text, mrkdwn: true });
+            channelsSent++;
+            console.log(`[TEAM_CHANNEL] Sent to ${ch.channel_name || ch.channel_id} (${ch.team_name})`);
+            // 발송 이력 기록
+            await pool.query(
+              "INSERT INTO t_secom_trigger_log (trigger_id, trigger_name, sabun, name, email, notify_type, status) VALUES (?, ?, ?, ?, ?, ?, ?)",
+              [id, trigger.function_name, null, ch.team_name, ch.channel_name || ch.channel_id, 'team_summary', 'success']
+            );
+          }
         } catch (err: any) {
           console.error(`[TEAM_CHANNEL] Error sending to ${ch.team_name}:`, err.message);
           await pool.query(

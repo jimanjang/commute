@@ -55,7 +55,7 @@ export async function GET() {
 
         // Trigger the run!
         // We use fetch to call our own internal run API.
-        const port = process.env.PORT || 3000;
+        const port = process.env.PORT || 3005;
         const baseUrl = `http://localhost:${port}`;
         
         try {
