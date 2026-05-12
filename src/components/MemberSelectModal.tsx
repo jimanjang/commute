@@ -45,6 +45,20 @@ export function MemberSelectModal({ isOpen, onClose, onConfirm, initialSelected 
     (u.team && u.team.toLowerCase().includes(search.toLowerCase()))
   );
 
+  const allFilteredSelected = filteredUsers.length > 0 && filteredUsers.every(u => selected.has(u.sabun));
+
+  const toggleSelectAll = () => {
+    const next = new Set(selected);
+    if (allFilteredSelected) {
+      // If all filtered are selected, unselect only the filtered ones
+      filteredUsers.forEach(u => next.delete(u.sabun));
+    } else {
+      // Otherwise select all filtered ones
+      filteredUsers.forEach(u => next.add(u.sabun));
+    }
+    setSelected(next);
+  };
+
   const toggleUser = (sabun: string) => {
     const next = new Set(selected);
     if (next.has(sabun)) next.delete(sabun);
@@ -88,6 +102,26 @@ export function MemberSelectModal({ isOpen, onClose, onConfirm, initialSelected 
               />
            </div>
         </div>
+
+        {/* Select All Bar */}
+        {!isLoading && filteredUsers.length > 0 && (
+          <div 
+            className="px-6 py-3 bg-slate-50/80 border-b border-gray-100 flex items-center justify-between cursor-pointer hover:bg-slate-100/80 transition-colors"
+            onClick={toggleSelectAll}
+          >
+            <span className="text-[11px] font-black text-slate-500 uppercase tracking-wider">
+              검색 결과 ({filteredUsers.length}명)
+            </span>
+            <div className="flex items-center space-x-2 text-xs font-bold text-indigo-600">
+              <span>전체 {allFilteredSelected ? "해제" : "선택"}</span>
+              {allFilteredSelected ? (
+                <CheckSquare className="w-4 h-4" />
+              ) : (
+                <Square className="w-4 h-4 text-slate-300" />
+              )}
+            </div>
+          </div>
+        )}
 
         <div className="flex-1 overflow-y-auto p-4 space-y-2 custom-scrollbar">
            {isLoading ? (
