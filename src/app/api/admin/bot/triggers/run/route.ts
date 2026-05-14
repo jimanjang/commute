@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import pool from "@/lib/mysql";
 import { BigQuery } from "@google-cloud/bigquery";
-import { sendSlackBotNotification } from "@/lib/slack";
+import { sendSlackBotNotification, sendSlackDMByEmail } from "@/lib/slack";
 import path from "path";
 import { getKstDate, getTodayStr } from "@/lib/time";
 
@@ -61,17 +61,17 @@ export async function POST(request: Request) {
         [id, todayStr]
       );
 
-      const alreadySentCheckin = new Set(
+      const alreadySentCheckin = new Set<string>(
         alreadySentRows
           .filter((r: any) => r.notify_type === 'checkin' && r.status === 'success')
           .map((r: any) => r.sabun)
       );
-      const alreadyWaiting = new Set(
+      const alreadyWaiting = new Set<string>(
         alreadySentRows
           .filter((r: any) => r.notify_type === 'checkin' && r.status === 'waiting')
           .map((r: any) => r.sabun)
       );
-      const alreadySentReminder = new Set(
+      const alreadySentReminder = new Set<string>(
         alreadySentRows
           .filter((r: any) => r.notify_type === 'reminder')
           .map((r: any) => r.sabun)
@@ -345,6 +345,106 @@ export async function POST(request: Request) {
       targets = users.filter(u => u.status === "지각" || u.status === "미출근" || u.status === "결근");
     } else if (trigger.function_name === 'checkin_confirm') {
       targets = users.filter(u => u.status === "출근");
+    } else if (trigger.function_name.startsWith('send_slack_summary')) {
+      // 전사 근태 요약 알림
+      const totalCount = users.length;
+      const presentCount = users.filter(u => u.status === "출근" || u.status === "지각").length;
+      const lateMissingUsers = users.filter(u => u.status === "지각" || u.status === "미출근" || u.status === "결근");
+
+      const lateList = lateMissingUsers
+        .map(u => `- *${u.name}* (${u.status})`)
+        .slice(0, 30)
+        .join("\n");
+
+      const message = `
+*📢 [근태 요약 리포트] ${todayStr}*
+
+• *전체 구성원:* ${totalCount}명
+• *현재 출근자:* ${presentCount}명
+• *지각/누락자:* ${lateMissingUsers.length}명
+
+*📍 지각/누락 명단 (상위 30명):*
+${lateList || "- 없음"}
+
+${lateMissingUsers.length > 30 ? `_...외 ${lateMissingUsers.length - 30}명 더 있음_` : ""}
+
+> 이 알림은 트리거 설정에 의해 자동/수동으로 발송되었습니다.
+      `.trim();
+
+      try {
+        let sentCount = 0;
+        
+        let parsedReceivers: any[] = [];
+        try {
+           if (trigger.receivers) parsedReceivers = JSON.parse(trigger.receivers);
+        } catch(e) {}
+
+        if (parsedReceivers.length === 0) {
+           // 수신자가 비어있으면 기존처럼 기본 관리자(laika)에게 발송
+           await sendSlackDMByEmail("laika@daangnservice.com", message);
+           sentCount++;
+           await pool.query(
+             "INSERT INTO t_secom_trigger_log (trigger_id, trigger_name, sabun, name, email, notify_type, status) VALUES (?, ?, ?, ?, ?, ?, ?)",
+             [id, trigger.function_name, null, '전사 요약', 'laika@daangnservice.com', 'summary', 'success']
+           );
+        } else {
+           const { WebClient } = await import("@slack/web-api");
+           const slack = new WebClient(process.env.SLACK_TOKEN);
+           
+           for (const r of parsedReceivers) {
+              if (r.type === 'user') {
+                 // r.value = sabun
+                 const p = personMap.get(r.value);
+                 const email = p?.Email;
+                 if (email) {
+                    try {
+                       await sendSlackDMByEmail(email, message);
+                       sentCount++;
+                       await pool.query(
+                         "INSERT INTO t_secom_trigger_log (trigger_id, trigger_name, sabun, name, email, notify_type, status) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                         [id, trigger.function_name, r.value, p?.Name || '수신자', email, 'summary', 'success']
+                       );
+                    } catch (err: any) {
+                       await pool.query(
+                         "INSERT INTO t_secom_trigger_log (trigger_id, trigger_name, sabun, name, email, notify_type, status, error_message) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                         [id, trigger.function_name, r.value, p?.Name || '수신자', email, 'summary', 'failure', err.message]
+                       );
+                    }
+                 }
+              } else if (r.type === 'channel') {
+                 // r.value = channel_id
+                 try {
+                    if (process.env.DRY_RUN === 'true') {
+                       console.log(`[DRY RUN] Would send summary to channel ${r.value}`);
+                    } else {
+                       await slack.chat.postMessage({ channel: r.value, text: message, mrkdwn: true });
+                       console.log(`[Summary] Sent to ${r.value}`);
+                    }
+                    sentCount++;
+                    await pool.query(
+                      "INSERT INTO t_secom_trigger_log (trigger_id, trigger_name, sabun, name, email, notify_type, status) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                      [id, trigger.function_name, null, '채널발송', r.value, 'summary_channel', 'success']
+                    );
+                 } catch (err: any) {
+                    await pool.query(
+                      "INSERT INTO t_secom_trigger_log (trigger_id, trigger_name, sabun, name, email, notify_type, status, error_message) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                      [id, trigger.function_name, null, '채널발송', r.value, 'summary_channel', 'failure', err.message]
+                    );
+                 }
+              }
+           }
+        }
+
+        await pool.query("UPDATE t_secom_trigger SET last_run = CURRENT_TIMESTAMP WHERE id = ?", [id]);
+        return NextResponse.json({ success: true, targets: totalCount, sent: sentCount });
+      } catch (err: any) {
+        console.error("Summary Slack Error:", err);
+        await pool.query(
+          "INSERT INTO t_secom_trigger_log (trigger_id, trigger_name, sabun, name, email, notify_type, status, error_message) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+          [id, trigger.function_name, null, '전사 요약', 'laika@daangnservice.com', 'summary', 'failure', err.message]
+        );
+        return NextResponse.json({ error: err.message }, { status: 500 });
+      }
     }
 
     if (triggerTargets.size > 0) {

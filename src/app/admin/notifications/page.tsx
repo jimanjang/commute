@@ -15,6 +15,7 @@ import {
   Square,
   Plus,
   Play,
+  Pause,
   Edit2,
   ExternalLink,
   ChevronRight,
@@ -205,6 +206,37 @@ export default function NotificationsPage() {
     }
   };
 
+  const handlePauseTrigger = async (id: number, currentIsActive: boolean) => {
+    try {
+      const res = await fetch('/api/admin/bot/triggers', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, is_active: !currentIsActive })
+      });
+      if (res.ok) fetchTriggers();
+      else alert('상태 변경 실패');
+    } catch (err) {
+      alert('상태 변경 중 오류 발생');
+    }
+  };
+
+  const handleSendSlackSummary = async () => {
+    setSendingStatus('sending');
+    try {
+      const res = await fetch('/api/admin/notify-slack', { method: 'POST' });
+      if (res.ok) {
+        alert('슬랙 근태 요약 알림이 발송되었습니다.');
+      } else {
+        const data = await res.json();
+        alert(`발송 실패: ${data.error}`);
+      }
+    } catch (err) {
+      alert('서버 오류로 슬랙 발송에 실패했습니다.');
+    } finally {
+      setSendingStatus('idle');
+    }
+  };
+
   const handleRetryGap = async (gap: any) => {
     try {
       const res = await fetch('/api/admin/bot/triggers/gaps', {
@@ -312,13 +344,14 @@ export default function NotificationsPage() {
       {activeTab === 'triggers' ? (
         /* Triggers Dashboard - GAS Style List */
         <div className="bg-white rounded-[32px] border border-gray-100 shadow-sm overflow-hidden">
-           <div className="overflow-x-auto">
+        <div className="overflow-x-auto">
              <table className="w-full text-left">
                <thead>
                  <tr className="bg-gray-50/50">
                    <th className="px-8 py-4 text-[11px] font-black text-gray-400 uppercase tracking-widest">트리거 이름 (함수)</th>
                    <th className="px-8 py-4 text-[11px] font-black text-gray-400 uppercase tracking-widest">이벤트</th>
                    <th className="px-8 py-4 text-[11px] font-black text-gray-400 uppercase tracking-widest">최종 실행</th>
+                   <th className="px-8 py-4 text-[11px] font-black text-gray-400 uppercase tracking-widest text-center">상태</th>
                    <th className="px-8 py-4 text-[11px] font-black text-gray-400 uppercase tracking-widest text-center">오류율</th>
                    <th className="px-8 py-4 text-[11px] font-black text-gray-400 uppercase tracking-widest text-right">관리</th>
                  </tr>
@@ -341,11 +374,13 @@ export default function NotificationsPage() {
                               "w-10 h-10 rounded-xl flex items-center justify-center shadow-sm",
                               trigger.function_name === 'reminder' ? "bg-orange-50 text-orange-500" : 
                               trigger.function_name === 'attendance_smart_alert' ? "bg-indigo-50 text-indigo-500" :
+                              trigger.function_name.includes('send_slack_summary') ? "bg-slate-800 text-white" :
                               trigger.time_type === 'REALTIME_CHECKIN' ? "bg-violet-50 text-violet-500" :
                               "bg-emerald-50 text-emerald-500"
                             )}>
                                {trigger.function_name === 'reminder' ? <AlertCircle className="w-5 h-5" /> : 
                                 trigger.function_name === 'attendance_smart_alert' ? <Bell className="w-5 h-5" /> :
+                                trigger.function_name.includes('send_slack_summary') ? <Send className="w-4 h-4" /> :
                                 <CheckCircle2 className="w-5 h-5" />}
                             </div>
                            <div>
@@ -353,6 +388,7 @@ export default function NotificationsPage() {
                                  {trigger.time_type === 'REALTIME_CHECKIN' ? "🔔 지문 인식 시 실시간 알림" :
                                   trigger.function_name === 'reminder' ? "미출근 리마인더" : 
                                   trigger.function_name === 'attendance_smart_alert' ? "근태 통합 알림 (Smart)" :
+                                  trigger.function_name.includes('send_slack_summary') ? "전사 근태 요약 알림" :
                                   "출근 확인 알림"}
                                </p>
                               <p className="text-[11px] text-gray-400 font-bold">{trigger.function_name}</p>
@@ -405,34 +441,60 @@ export default function NotificationsPage() {
                         </p>
                      </td>
                      <td className="px-8 py-6 text-center">
+                        <span className={cn(
+                          "text-[11px] font-black px-2 py-0.5 rounded-md",
+                          !trigger.is_active
+                            ? "bg-gray-100 text-gray-400"
+                            : "bg-emerald-50 text-emerald-600"
+                        )}>
+                          {!trigger.is_active ? '정지됨' : '활성'}
+                        </span>
+                     </td>
+                     <td className="px-8 py-6 text-center">
                         <span className="text-[11px] font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md">
                           {trigger.error_rate || "0%"}
                         </span>
                      </td>
                      <td className="px-8 py-6 text-right">
                         <div className="flex items-center justify-end space-x-1">
-                           <button 
+                           {/* 실행 버튼 (정지 중이면 비활성) */}
+                           <button
                              onClick={() => handleRunTrigger(trigger.id)}
-                             disabled={sendingStatus === 'sending'}
-                             className="p-2.5 text-slate-300 hover:text-blue-500 hover:bg-blue-50 rounded-lg transition-all"
+                             disabled={sendingStatus === 'sending' || !trigger.is_active}
+                             className="p-2.5 text-slate-300 hover:text-blue-500 hover:bg-blue-50 rounded-lg transition-all disabled:opacity-30 disabled:cursor-not-allowed"
                              title="지금 실행"
                            >
-                              <Play className="w-4 h-4 fill-current" />
+                             <Play className="w-4 h-4 fill-current" />
                            </button>
-                           <button 
+                           {/* 중지/재개 버튼 */}
+                           <button
+                             onClick={() => handlePauseTrigger(trigger.id, !!trigger.is_active)}
+                             className={cn(
+                               "p-2.5 rounded-lg transition-all",
+                               !trigger.is_active
+                                 ? "text-emerald-400 hover:text-emerald-600 hover:bg-emerald-50"
+                                 : "text-slate-300 hover:text-orange-500 hover:bg-orange-50"
+                             )}
+                             title={!trigger.is_active ? '재개' : '중지'}
+                           >
+                             {!trigger.is_active
+                               ? <Play className="w-4 h-4" />
+                               : <Pause className="w-4 h-4 fill-current" />}
+                           </button>
+                           <button
                              onClick={() => {
                                setEditingTrigger(trigger);
                                setIsTriggerModalOpen(true);
                              }}
                              className="p-2.5 text-slate-300 hover:text-slate-600 hover:bg-gray-50 rounded-lg transition-all"
                            >
-                              <Edit2 className="w-4 h-4" />
+                             <Edit2 className="w-4 h-4" />
                            </button>
-                           <button 
+                           <button
                              onClick={() => handleDeleteTrigger(trigger.id)}
                              className="p-2.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
                            >
-                              <Trash2 className="w-4 h-4" />
+                             <Trash2 className="w-4 h-4" />
                            </button>
                         </div>
                      </td>

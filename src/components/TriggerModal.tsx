@@ -19,12 +19,37 @@ export function TriggerModal({ isOpen, onClose, onSave, initialData }: TriggerMo
   const [timeValue, setTimeValue] = useState(initialData?.time_value || "09");
   const [targets, setTargets] = useState<string[]>(initialData?.targets || []);
   const [daysOfWeek, setDaysOfWeek] = useState(initialData?.days_of_week || "1,2,3,4,5");
+  
+  const [receiverUsers, setReceiverUsers] = useState<string[]>([]);
+  const [receiverChannels, setReceiverChannels] = useState<string[]>([]);
+  const [slackChannels, setSlackChannels] = useState<any[]>([]);
+
   const [isMemberModalOpen, setIsMemberModalOpen] = useState(false);
+  const [isReceiverUserModalOpen, setIsReceiverUserModalOpen] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/admin/slack-channels').then(res => res.json()).then(data => setSlackChannels(data));
+  }, []);
 
   // Sync form state when initialData or isOpen changes
   useEffect(() => {
     if (isOpen) {
-      setFunctionName(initialData?.function_name || "reminder");
+      let funcName = initialData?.function_name || "reminder";
+      
+      // Backward compatibility
+      if (funcName.startsWith('send_slack_summary')) {
+        funcName = 'send_slack_summary';
+      }
+
+      setFunctionName(funcName);
+      
+      if (initialData?.receivers && Array.isArray(initialData.receivers)) {
+        setReceiverUsers(initialData.receivers.filter((r: any) => r.type === 'user').map((r: any) => r.value));
+        setReceiverChannels(initialData.receivers.filter((r: any) => r.type === 'channel').map((r: any) => r.value));
+      } else {
+        setReceiverUsers([]);
+        setReceiverChannels([]);
+      }
       setEventSource(initialData?.event_source || "TIME_DRIVEN");
       setTimeType(initialData?.time_type || "DAY_TIMER");
       setTimeValue(initialData?.time_value || "09");
@@ -55,6 +80,11 @@ export function TriggerModal({ isOpen, onClose, onSave, initialData }: TriggerMo
   if (!isOpen) return null;
 
   const handleSave = () => {
+    const finalReceivers = [
+      ...receiverUsers.map(sabun => ({ type: 'user', value: sabun })),
+      ...receiverChannels.map(chId => ({ type: 'channel', value: chId }))
+    ];
+
     onSave({
       id: initialData?.id,
       function_name: functionName,
@@ -63,7 +93,8 @@ export function TriggerModal({ isOpen, onClose, onSave, initialData }: TriggerMo
       time_value: timeValue,
       is_active: initialData?.is_active ?? true,
       targets: targets,
-      days_of_week: daysOfWeek
+      days_of_week: daysOfWeek,
+      receivers: finalReceivers
     });
   };
 
@@ -97,6 +128,7 @@ export function TriggerModal({ isOpen, onClose, onSave, initialData }: TriggerMo
                   <option value="checkin_confirm">출근 확인 알림</option>
                   <option value="reminder">미출근 리마인더</option>
                   <option value="attendance_smart_alert">근태 통합 알림 (Smart Alert)</option>
+                  <option value="send_slack_summary">전사 근태 요약 알림</option>
                 </select>
                 <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
               </div>
@@ -224,7 +256,66 @@ export function TriggerModal({ isOpen, onClose, onSave, initialData }: TriggerMo
              </div>
 
              <div className="space-y-3 pt-2">
+                <div className="flex items-center justify-between mb-2">
+                   <label className="text-[13px] font-bold text-gray-600">알림 수신자 설정</label>
+                </div>
+                {functionName === 'send_slack_summary' ? (
+                  <div className="space-y-4">
+                    {/* 수신 사용자 */}
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-[11px] font-bold text-gray-500">수신 사용자 (개인별 DM 발송)</span>
+                      </div>
+                      <button 
+                        onClick={() => setIsReceiverUserModalOpen(true)}
+                        className="w-full flex items-center justify-between bg-white border border-gray-200 rounded-md px-4 py-2.5 text-[11px] font-bold text-gray-600 hover:border-indigo-400 hover:bg-indigo-50/30 transition-all shadow-sm group"
+                      >
+                         <div className="flex items-center space-x-2">
+                            <Users className="w-3.5 h-3.5 text-gray-400 group-hover:text-indigo-500" />
+                            <span>수신 사용자 선택</span>
+                         </div>
+                         <ChevronDown className="w-3 h-3 text-gray-300" />
+                      </button>
+                      <p className="text-[10px] text-indigo-500 font-bold ml-1 mt-1">
+                         {receiverUsers.length > 0 ? `${receiverUsers.length}명 선택됨` : "미지정 (기본 관리자에게 발송됨)"}
+                      </p>
+                    </div>
+
+                    {/* 수신 채널 */}
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-[11px] font-bold text-gray-500">수신 팀 채널 (채널 발송)</span>
+                      </div>
+                      <div className="max-h-32 overflow-y-auto border border-gray-200 rounded-md bg-white p-2 space-y-1 scrollbar-thin">
+                        {slackChannels.map(ch => (
+                           <label key={ch.channel_id} className="flex items-center space-x-2 p-1.5 hover:bg-gray-50 rounded cursor-pointer">
+                             <input type="checkbox" 
+                               checked={receiverChannels.includes(ch.channel_id)}
+                               onChange={(e) => {
+                                 if (e.target.checked) setReceiverChannels([...receiverChannels, ch.channel_id]);
+                                 else setReceiverChannels(receiverChannels.filter(id => id !== ch.channel_id));
+                               }}
+                               className="rounded border-gray-300 text-indigo-500 focus:ring-indigo-500 w-3 h-3"
+                             />
+                             <span className="text-[11px] font-bold text-gray-600">{ch.team_name} <span className="text-gray-400">({ch.channel_name || ch.channel_id})</span></span>
+                           </label>
+                        ))}
+                        {slackChannels.length === 0 && <p className="text-[10px] text-gray-400 p-2">등록된 팀 채널이 없습니다.</p>}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="w-full bg-gray-50 border border-gray-200 rounded-md px-4 py-2.5 text-[11px] font-bold text-gray-400 shadow-sm cursor-not-allowed text-center">
+                     대상자 본인에게 개별 DM 발송
+                  </div>
+                )}
+             </div>
+
+             <div className="space-y-3 pt-6 border-t border-gray-100">
                 <label className="text-[13px] font-bold text-gray-600">대상자 설정</label>
+                <p className="text-[10px] text-gray-400 font-bold -mt-1 leading-relaxed">
+                  * 요약 데이터 산출 또는 알림 수신에 포함될 대상자를 지정합니다. 미지정 시 전체가 대상이 됩니다.
+                </p>
                 <button 
                   onClick={() => setIsMemberModalOpen(true)}
                   className="w-full flex items-center justify-between bg-white border border-gray-200 rounded-md px-4 py-2.5 text-[11px] font-bold text-gray-600 hover:border-indigo-400 hover:bg-indigo-50/30 transition-all shadow-sm group"
@@ -272,6 +363,15 @@ export function TriggerModal({ isOpen, onClose, onSave, initialData }: TriggerMo
           setIsMemberModalOpen(false);
         }}
         initialSelected={targets}
+      />
+      <MemberSelectModal
+        isOpen={isReceiverUserModalOpen}
+        onClose={() => setIsReceiverUserModalOpen(false)}
+        onConfirm={(selectedSabuns) => {
+          setReceiverUsers(selectedSabuns);
+          setIsReceiverUserModalOpen(false);
+        }}
+        initialSelected={receiverUsers}
       />
     </div>
   );

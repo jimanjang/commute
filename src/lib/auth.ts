@@ -29,17 +29,40 @@ async function isSuperAdmin(email: string): Promise<boolean> {
     const auth = new google.auth.JWT({
       email: keyData.client_email,
       key: keyData.private_key,
-      scopes: ["https://www.googleapis.com/auth/admin.directory.user.readonly"],
+      scopes: [
+        "https://www.googleapis.com/auth/admin.directory.user.readonly",
+        "https://www.googleapis.com/auth/admin.directory.group.readonly"
+      ],
       subject: adminEmail,
     });
 
 
     const admin = google.admin({ version: "directory_v1", auth });
+    
+    // 1. Check Super Admin
     const res = await admin.users.get({ userKey: email });
     const isAdmin = res.data.isAdmin || false;
     
-    console.log(`[Auth] Admin check success: ${email} -> isAdmin: ${isAdmin}`);
-    return isAdmin;
+    if (isAdmin) {
+      console.log(`[Auth] Admin check success: ${email} -> isAdmin: true`);
+      return true;
+    }
+
+    // 2. Check Group Membership
+    try {
+      const groupRes = await admin.members.hasMember({
+        groupKey: "attendance-management@daangnservice.com",
+        memberKey: email
+      });
+      if (groupRes.data.isMember) {
+        console.log(`[Auth] Admin check success: ${email} is in attendance-management group.`);
+        return true;
+      }
+    } catch (groupError: any) {
+      console.warn(`[Auth] Group check failed for ${email}:`, groupError.message);
+    }
+    
+    return false;
   } catch (error: any) {
     console.error(`[Auth] Admin check failed for ${email}:`, error.message);
     

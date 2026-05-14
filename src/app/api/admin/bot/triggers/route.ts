@@ -19,9 +19,15 @@ export async function GET() {
     }
 
     const result = triggers.map((tg: any) => {
+      let parsedReceivers = [];
+      try {
+        if (tg.receivers) parsedReceivers = JSON.parse(tg.receivers);
+      } catch (e) {}
+
       const updatedTg = {
         ...tg,
-        targets: targetMap.get(tg.id) || []
+        targets: targetMap.get(tg.id) || [],
+        receivers: parsedReceivers
       };
       if (updatedTg.created_at) {
         const d = new Date(updatedTg.created_at);
@@ -43,27 +49,28 @@ export async function GET() {
   }
 }
 
-export async function POST(request: Request) {
-  try {
-    const body = await request.json();
-    const { id, function_name, event_source, time_type, time_value, is_active, targets, days_of_week } = body;
-
-    let triggerId = id;
-
-    if (id) {
-      // Update Trigger
-      await pool.query(
-        "UPDATE t_secom_trigger SET function_name = ?, event_source = ?, time_type = ?, time_value = ?, is_active = ?, days_of_week = ? WHERE id = ?",
-        [function_name, event_source, time_type, time_value, is_active, days_of_week || '1,2,3,4,5', id]
-      );
-      // Delete old targets
-      await pool.query("DELETE FROM t_secom_trigger_target WHERE trigger_id = ?", [id]);
-    } else {
-      // Create Trigger
-      const [res]: any = await pool.query(
-        "INSERT INTO t_secom_trigger (function_name, event_source, time_type, time_value, is_active, days_of_week) VALUES (?, ?, ?, ?, ?, ?)",
-        [function_name, event_source || 'TIME_DRIVEN', time_type || 'DAY_TIMER', time_value, is_active ?? true, days_of_week || '1,2,3,4,5']
-      );
+  export async function POST(request: Request) {
+    try {
+      const body = await request.json();
+      const { id, function_name, event_source, time_type, time_value, is_active, targets, days_of_week, receivers } = body;
+  
+      let triggerId = id;
+      const receiversStr = receivers && receivers.length > 0 ? JSON.stringify(receivers) : null;
+  
+      if (id) {
+        // Update Trigger
+        await pool.query(
+          "UPDATE t_secom_trigger SET function_name = ?, event_source = ?, time_type = ?, time_value = ?, is_active = ?, days_of_week = ?, receivers = ? WHERE id = ?",
+          [function_name, event_source, time_type, time_value, is_active, days_of_week || '1,2,3,4,5', receiversStr, id]
+        );
+        // Delete old targets
+        await pool.query("DELETE FROM t_secom_trigger_target WHERE trigger_id = ?", [id]);
+      } else {
+        // Create Trigger
+        const [res]: any = await pool.query(
+          "INSERT INTO t_secom_trigger (function_name, event_source, time_type, time_value, is_active, days_of_week, receivers) VALUES (?, ?, ?, ?, ?, ?, ?)",
+          [function_name, event_source || 'TIME_DRIVEN', time_type || 'DAY_TIMER', time_value, is_active ?? true, days_of_week || '1,2,3,4,5', receiversStr]
+        );
       triggerId = res.insertId;
     }
 
@@ -96,6 +103,23 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ success: true });
   } catch (err: any) {
     console.error("[Triggers] DELETE Error:", err.message);
+    return NextResponse.json({ error: err.message }, { status: 500 });
+  }
+}
+
+export async function PATCH(request: Request) {
+  try {
+    const body = await request.json();
+    const { id, is_active } = body;
+
+    if (!id) {
+      return NextResponse.json({ error: "Missing ID" }, { status: 400 });
+    }
+
+    await pool.query("UPDATE t_secom_trigger SET is_active = ? WHERE id = ?", [is_active ? 1 : 0, id]);
+    return NextResponse.json({ success: true });
+  } catch (err: any) {
+    console.error("[Triggers] PATCH Error:", err.message);
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
