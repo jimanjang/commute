@@ -317,6 +317,49 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: true, channels_sent: channelsSent, teams: teamGroups.size });
     }
 
+    // ─── CHECKOUT REMINDER ───
+    if (trigger.function_name === 'send_checkout_reminder') {
+      const [alreadySentRows]: any = await pool.query(
+        `SELECT sabun FROM t_secom_trigger_log
+         WHERE trigger_id = ? AND notify_type = 'checkout_reminder' AND status = 'success' AND DATE(CONVERT_TZ(created_at, '+00:00', '+09:00')) = ?`,
+        [id, todayStr]
+      );
+      const alreadySent = new Set(alreadySentRows.map((r: any) => r.sabun));
+
+      let reminderTargets: any[] = [];
+      if (triggerTargets.size > 0) {
+        for (const s of triggerTargets) {
+          const p = personMap.get(s);
+          if (p && p.Email && !alreadySent.has(s)) reminderTargets.push(p);
+        }
+      } else {
+        for (const [, p] of personMap.entries()) {
+          if (p.Email && p.Sabun && !alreadySent.has(p.Sabun)) reminderTargets.push(p);
+        }
+      }
+
+      let sentCount = 0;
+      for (const user of reminderTargets) {
+        try {
+          await sendSlackBotNotification(user.Email, 'checkout_reminder');
+          sentCount++;
+          await pool.query(
+            "INSERT INTO t_secom_trigger_log (trigger_id, trigger_name, sabun, name, email, notify_type, status) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            [id, trigger.function_name, user.Sabun, user.Name, user.Email, 'checkout_reminder', 'success']
+          );
+        } catch (err: any) {
+          console.error(`[Checkout Reminder] Error (${user.Name}):`, err);
+          await pool.query(
+            "INSERT INTO t_secom_trigger_log (trigger_id, trigger_name, sabun, name, email, notify_type, status, error_message) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            [id, trigger.function_name, user.Sabun, user.Name, user.Email, 'checkout_reminder', 'failure', err.message]
+          );
+        }
+      }
+
+      await pool.query("UPDATE t_secom_trigger SET last_run = CURRENT_TIMESTAMP WHERE id = ?", [id]);
+      return NextResponse.json({ success: true, targets: reminderTargets.length, sent: sentCount });
+    }
+
     const bqQuery = `
       SELECT p.Name as name, p.Sabun as sabun, w.WSTime as checkIn, w.bLate, w.bAbsent
       FROM \`secom-data.secom.person\` p

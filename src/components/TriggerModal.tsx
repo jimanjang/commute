@@ -129,6 +129,7 @@ export function TriggerModal({ isOpen, onClose, onSave, initialData }: TriggerMo
                   <option value="reminder">미출근 리마인더</option>
                   <option value="attendance_smart_alert">근태 통합 알림 (Smart Alert)</option>
                   <option value="send_slack_summary">전사 근태 요약 알림</option>
+                  <option value="send_checkout_reminder">퇴근 사전 알림</option>
                 </select>
                 <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
               </div>

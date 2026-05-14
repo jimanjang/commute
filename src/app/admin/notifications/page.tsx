@@ -375,12 +375,14 @@ export default function NotificationsPage() {
                               trigger.function_name === 'reminder' ? "bg-orange-50 text-orange-500" : 
                               trigger.function_name === 'attendance_smart_alert' ? "bg-indigo-50 text-indigo-500" :
                               trigger.function_name.includes('send_slack_summary') ? "bg-slate-800 text-white" :
+                              trigger.function_name === 'send_checkout_reminder' ? "bg-rose-50 text-rose-500" :
                               trigger.time_type === 'REALTIME_CHECKIN' ? "bg-violet-50 text-violet-500" :
                               "bg-emerald-50 text-emerald-500"
                             )}>
                                {trigger.function_name === 'reminder' ? <AlertCircle className="w-5 h-5" /> : 
                                 trigger.function_name === 'attendance_smart_alert' ? <Bell className="w-5 h-5" /> :
                                 trigger.function_name.includes('send_slack_summary') ? <Send className="w-4 h-4" /> :
+                                trigger.function_name === 'send_checkout_reminder' ? <Clock className="w-5 h-5" /> :
                                 <CheckCircle2 className="w-5 h-5" />}
                             </div>
                            <div>
@@ -389,6 +391,7 @@ export default function NotificationsPage() {
                                   trigger.function_name === 'reminder' ? "미출근 리마인더" : 
                                   trigger.function_name === 'attendance_smart_alert' ? "근태 통합 알림 (Smart)" :
                                   trigger.function_name.includes('send_slack_summary') ? "전사 근태 요약 알림" :
+                                  trigger.function_name === 'send_checkout_reminder' ? "퇴근 사전 알림" :
                                   "출근 확인 알림"}
                                </p>
                               <p className="text-[11px] text-gray-400 font-bold">{trigger.function_name}</p>
