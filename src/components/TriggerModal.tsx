@@ -305,6 +305,13 @@ export function TriggerModal({ isOpen, onClose, onSave, initialData }: TriggerMo
                       </div>
                     </div>
                   </div>
+                ) : (functionName === 'reminder' || timeType === 'TEAM_CHANNEL_CHECKIN') ? (
+                  <div className="w-full bg-indigo-50 border border-indigo-200 rounded-md px-4 py-2.5 text-[11px] font-bold text-indigo-600 shadow-sm text-center">
+                     📍 설정된 팀 채널로 자동 라우팅 발송
+                     <p className="text-[9px] text-indigo-400 mt-1 font-normal">
+                       (대상자의 팀 정보를 확인하여 연결된 채널로 발송됩니다)
+                     </p>
+                  </div>
                 ) : (
                   <div className="w-full bg-gray-50 border border-gray-200 rounded-md px-4 py-2.5 text-[11px] font-bold text-gray-400 shadow-sm cursor-not-allowed text-center">
                      대상자 본인에게 개별 DM 발송

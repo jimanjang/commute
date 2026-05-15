@@ -22,7 +22,10 @@ import {
   ChevronLeft,
   Send,
   Mail,
-  Download
+  Download,
+  Moon,
+  TrendingUp,
+  Palmtree
 } from "lucide-react";
 
 import Link from "next/link";
@@ -60,10 +63,32 @@ function DashboardContent() {
   const [adminCalendarData, setAdminCalendarData] = useState<AdminDailyCount[]>([]);
   const [summaryStats, setSummaryStats] = useState<any>({
     totalMember: 0,
+    todayTarget: 0,
     todayCheckIn: 0,
     lateMissing: 0,
     modifiedCount: 0
   });
+  const [isSyncing, setIsSyncing] = useState(false);
+
+  const handleSync = async () => {
+    if (isSyncing) return;
+    setIsSyncing(true);
+    try {
+      const res = await fetch("/api/admin/schedule/sync");
+      if (res.ok) {
+        alert("실시간 동기화가 완료되었습니다.");
+        window.location.reload();
+      } else {
+        const error = await res.json();
+        alert(`동기화 실패: ${error.message || error.error}`);
+      }
+    } catch (err) {
+      alert("동기화 중 오류가 발생했습니다.");
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
   const [isLoading, setIsLoading] = useState(true);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editUser, setEditUser] = useState<any>(null);
@@ -154,9 +179,12 @@ function DashboardContent() {
 
   const filteredUsers = allUsersData.filter(user => {
     if (filterType === 'all') return true;
-    if (filterType === 'present') return user.checkIn !== "-";
-    if (filterType === 'lateMissing') return user.status === "지각" || user.status === "미출근" || user.status === "결근" || user.checkOut === "-";
+    if (filterType === 'present') return user.status === "출근" || user.status === "지각";
+    if (filterType === 'lateMissing') return user.status === "지각" || user.status === "미출근" || user.status === "결근";
     if (filterType === 'modified') return user.isModified;
+    if (filterType === 'beforeWork') return user.status === "출근 전";
+    if (filterType === 'off') return user.status === "-";
+    if (filterType === 'vacation') return user.status === "휴가";
     return true;
   });
 
@@ -179,21 +207,31 @@ function DashboardContent() {
                 <Download className="w-4 h-4" />
                 <span>기록 다운로드</span>
              </button>
-             <div className="px-4 py-2 bg-white border border-gray-100 rounded-2xl shadow-sm text-xs font-black text-gray-400 uppercase tracking-widest">
-                Real-time Sync
-             </div>
+             <button 
+                onClick={handleSync}
+                disabled={isSyncing}
+                className={cn(
+                  "px-4 py-2 border rounded-2xl shadow-sm text-xs font-black uppercase tracking-widest transition-all",
+                  isSyncing 
+                    ? "bg-gray-50 text-gray-300 border-gray-100 cursor-not-allowed" 
+                    : "bg-white text-slate-900 border-slate-900 hover:bg-slate-900 hover:text-white"
+                )}
+             >
+                {isSyncing ? "Syncing..." : "Real-time Sync"}
+             </button>
           </div>
         </div>
 
 
         {/* Admin Overview Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           <div className="cursor-pointer" onClick={() => setFilterType('all')}>
             <StatCard 
-              title="총 구성원" 
-              value={`${summaryStats.totalMember}명`} 
+              title="오늘 출근 대상" 
+              value={`${summaryStats.todayTarget}명`} 
               icon={Users} 
               color={filterType === 'all' ? "bg-blue-600 text-white" : "bg-blue-50 text-blue-600"}
+              trend="Target"
             />
           </div>
           <div className="cursor-pointer" onClick={() => setFilterType('present')}>
@@ -213,12 +251,28 @@ function DashboardContent() {
               color={filterType === 'lateMissing' ? "bg-orange-600 text-white" : "bg-orange-50 text-orange-600"}
             />
           </div>
-          <div className="cursor-pointer" onClick={() => setFilterType('modified')}>
+          <div className="cursor-pointer" onClick={() => setFilterType('beforeWork')}>
             <StatCard 
-              title="수정 사용자" 
-              value={`${summaryStats.modifiedCount}명`} 
-              icon={Edit2} 
-              color={filterType === 'modified' ? "bg-purple-600 text-white" : "bg-purple-50 text-purple-600"}
+              title="출근 전" 
+              value={`${summaryStats.beforeWorkCount || 0}명`} 
+              icon={Clock} 
+              color={filterType === 'beforeWork' ? "bg-blue-600 text-white" : "bg-blue-50 text-blue-600"}
+            />
+          </div>
+          <div className="cursor-pointer" onClick={() => setFilterType('off')}>
+            <StatCard 
+              title="휴무" 
+              value={`${summaryStats.offCount || 0}명`} 
+              icon={Moon} 
+              color={filterType === 'off' ? "bg-slate-600 text-white" : "bg-slate-50 text-slate-600"}
+            />
+          </div>
+          <div className="cursor-pointer" onClick={() => setFilterType('vacation')}>
+            <StatCard 
+              title="휴가" 
+              value={`${summaryStats.vacationCount || 0}명`} 
+              icon={Palmtree} 
+              color={filterType === 'vacation' ? "bg-purple-600 text-white" : "bg-purple-50 text-purple-600"}
             />
           </div>
         </div>
@@ -250,6 +304,9 @@ function DashboardContent() {
                     filterType === 'all' ? '전체 구성원' : 
                     filterType === 'present' ? '출근 구성원' :
                     filterType === 'lateMissing' ? '지각/누락 명단' :
+                    filterType === 'beforeWork' ? '출근 전 명단' :
+                    filterType === 'off' ? '휴무자 명단' :
+                    filterType === 'vacation' ? '휴가자 명단' :
                     '수정 내역 명단'
                   }
                 </h2>
@@ -285,6 +342,7 @@ function DashboardContent() {
                     <th className="px-5 py-4 text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] whitespace-nowrap">구성원 (성명/사번)</th>
                     <th className="px-5 py-4 text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] text-center whitespace-nowrap">부서 / 팀</th>
                     <th className="px-5 py-4 text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] text-center whitespace-nowrap">이메일</th>
+                    <th className="px-5 py-4 text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] text-center whitespace-nowrap">스케줄/일정</th>
                     <th className="px-5 py-4 text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] text-center whitespace-nowrap">출근 시간</th>
                     <th className="px-5 py-4 text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] text-center whitespace-nowrap">퇴근 시간</th>
                     <th className="px-5 py-4 text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] text-center whitespace-nowrap">상태</th>
@@ -314,6 +372,13 @@ function DashboardContent() {
                       <td className="px-5 py-5 text-center whitespace-nowrap">
                         <span className="text-[12px] font-bold text-slate-500">{user.email || "-"}</span>
                       </td>
+                      <td className="px-5 py-5 text-center whitespace-nowrap">
+                        <div className="flex flex-col items-center">
+                          <span className="text-[12px] font-black text-slate-700">
+                            {user.startTime ? `${user.startTime} ~ ${user.endTime || '?'}` : "정규"}
+                          </span>
+                        </div>
+                      </td>
                       <td className="px-5 py-5 text-center text-sm font-bold text-gray-600 font-mono whitespace-nowrap">
                         {user.checkIn !== "-" ? (
                           <span className="text-blue-600">{user.checkIn}</span>
@@ -329,15 +394,29 @@ function DashboardContent() {
                         )}
                       </td>
                       <td className="px-5 py-5 text-center whitespace-nowrap">
-                        <span className={cn(
-                          "px-2.5 py-1 rounded-full text-[11px] font-black shadow-sm ring-1",
-                          user.status === "출근" ? "bg-emerald-50 text-emerald-600 ring-emerald-100" : 
-                          user.status === "지각" ? "bg-orange-50 text-orange-600 ring-orange-100" :
-                          user.status === "결근" ? "bg-red-50 text-red-600 ring-red-100" :
-                          "bg-gray-100 text-gray-400 ring-gray-200"
-                        )}>
-                          {user.status}
-                        </span>
+                        <div className="flex flex-col items-center space-y-1">
+                          <span className={cn(
+                            "px-2.5 py-1 rounded-full text-[11px] font-black shadow-sm ring-1",
+                            user.status === "출근" ? "bg-emerald-50 text-emerald-600 ring-emerald-100" : 
+                            user.status === "지각" ? "bg-orange-50 text-orange-600 ring-orange-100" :
+                            user.status === "결근" || user.status === "미출근" ? "bg-red-50 text-red-600 ring-red-100" :
+                            user.status === "출근 전" ? "bg-blue-50 text-blue-600 ring-blue-100" :
+                            user.status === "휴가" ? "bg-purple-50 text-purple-600 ring-purple-100" :
+                            "bg-gray-100 text-gray-400 ring-gray-200"
+                          )}>
+                            {user.status === "-" ? "휴무" : user.status}
+                          </span>
+                          
+                          {user.scheduleDescription && (
+                            <div className="flex flex-wrap justify-center gap-1 mt-1">
+                              {user.scheduleDescription.split(', ').filter((d: string) => d !== '근무일' && d !== '보정시간' && d !== '휴가 발생').map((desc: string, i: number) => (
+                                <div key={i} className="px-2 py-0.5 bg-orange-50 text-orange-600 rounded-lg text-[9px] font-black ring-1 ring-orange-100 animate-pulse">
+                                  [{desc}]
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
                       </td>
                       <td className="px-5 py-5 text-center whitespace-nowrap">
                         <div className="flex items-center justify-center space-x-1">

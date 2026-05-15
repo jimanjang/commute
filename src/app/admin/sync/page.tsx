@@ -16,6 +16,8 @@ export default function SyncStatusPage() {
   const [status, setStatus] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
 
+  const [isSyncing, setIsSyncing] = useState(false);
+
   async function checkHealth() {
     setIsLoading(true);
     try {
@@ -26,6 +28,31 @@ export default function SyncStatusPage() {
       console.error(err);
     } finally {
       setIsLoading(false);
+    }
+  }
+
+  async function handleManualSync() {
+    if (isSyncing) return;
+    setIsSyncing(true);
+    try {
+      // 1. Sync User Teams from GWS
+      const userRes = await fetch("/api/admin/users/sync");
+      const userData = await userRes.json();
+      
+      // 2. Sync Schedules from Sheets
+      const schRes = await fetch("/api/admin/schedule/sync");
+      const schData = await schRes.json();
+      
+      if (userRes.ok && schRes.ok) {
+        alert(`동기화 성공!\n- 구성원 ${userData.count}명 업데이트\n- 일정 ${schData.count}건 업데이트`);
+        checkHealth();
+      } else {
+        alert(`동기화 실패:\n- 사용자: ${userData.error || '성공'}\n- 일정: ${schData.error || '성공'}`);
+      }
+    } catch (err) {
+      alert("서버 오류로 동기화에 실패했습니다.");
+    } finally {
+      setIsSyncing(false);
     }
   }
 
@@ -43,12 +70,25 @@ export default function SyncStatusPage() {
           </h1>
           <p className="text-sm text-gray-400 font-bold mt-1 ml-10">세콤 시스템과 빅쿼리 간의 연동 상태를 실시간으로 점검합니다.</p>
         </div>
-        <button 
-          onClick={checkHealth}
-          className="bg-white border border-gray-100 p-3 rounded-2xl shadow-sm hover:bg-gray-50 transition-all active:scale-95"
-        >
-          <RefreshCw className={cn("w-5 h-5 text-blue-500", isLoading && "animate-spin")} />
-        </button>
+        <div className="flex items-center space-x-3">
+          <button 
+            onClick={handleManualSync}
+            disabled={isSyncing}
+            className={cn(
+              "px-6 py-3 rounded-2xl shadow-md text-sm font-black flex items-center space-x-2 transition-all active:scale-95",
+              isSyncing ? "bg-gray-100 text-gray-400" : "bg-blue-600 text-white hover:bg-blue-700"
+            )}
+          >
+            <RefreshCw className={cn("w-4 h-4", isSyncing && "animate-spin")} />
+            <span>{isSyncing ? "동기화 중..." : "지금 동기화 실행"}</span>
+          </button>
+          <button 
+            onClick={checkHealth}
+            className="bg-white border border-gray-100 p-3 rounded-2xl shadow-sm hover:bg-gray-50 transition-all active:scale-95"
+          >
+            <RefreshCw className={cn("w-5 h-5 text-blue-500", isLoading && "animate-spin")} />
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">

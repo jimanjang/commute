@@ -5,6 +5,7 @@ import {
   Bell,
   Search,
   CheckCircle2,
+  XCircle,
   AlertCircle,
   Send,
   Clock,
@@ -59,6 +60,10 @@ export default function NotificationsPage() {
   const [isChannelsLoading, setIsChannelsLoading] = useState(false);
   const [isSlackListLoading, setIsSlackListLoading] = useState(false);
   const [newMapping, setNewMapping] = useState({ team_name: '', channel_id: '' });
+  
+  // Stats State
+  const [botStats, setBotStats] = useState<any>(null);
+  const [isStatsLoading, setIsStatsLoading] = useState(false);
 
   // Fetch Triggers
   const fetchTriggers = useCallback(async () => {
@@ -142,16 +147,29 @@ export default function NotificationsPage() {
     }
   }, []);
 
+  const fetchBotStats = useCallback(async () => {
+    setIsStatsLoading(true);
+    try {
+      const res = await fetch('/api/admin/bot/stats');
+      if (res.ok) setBotStats(await res.json());
+    } catch (e) {
+      console.error('Failed to fetch bot stats:', e);
+    } finally {
+      setIsStatsLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     fetchTriggers();
     fetchUsers();
+    fetchBotStats();
     if (activeTab === 'logs') fetchLogs();
     if (activeTab === 'gaps') fetchGaps();
     if (activeTab === 'team_channels') {
       fetchChannelMappings();
       fetchSlackChannelList();
     }
-  }, [fetchTriggers, fetchUsers, fetchLogs, fetchGaps, fetchChannelMappings, fetchSlackChannelList, activeTab]);
+  }, [fetchTriggers, fetchUsers, fetchLogs, fetchGaps, fetchChannelMappings, fetchSlackChannelList, fetchBotStats, activeTab]);
 
   // Trigger Handlers
   const handleSaveTrigger = async (data: any) => {
@@ -191,16 +209,27 @@ export default function NotificationsPage() {
       });
       const data = await res.json();
       if (res.ok) {
-        if (data.channels_sent !== undefined) {
-          alert(`${data.teams}개 팀 중 ${data.channels_sent}개 채널에 요약 알림 발송을 완료했습니다.`);
-        } else {
-          alert(`${data.targets}명 중 ${data.sent}명에게 알림 발송을 완료했습니다.`);
-        }
+        const targets = data.targets ?? 0;
+        const sent = data.sent ?? 0;
+        const totalPeople = data.totalPeople ?? 0;
+        const preview = data.preview || "메시지 내용 없음";
+        
+        const typeStr = data.type === 'team' ? `개 팀 채널(${totalPeople}명)` : 
+                        data.type === 'summary' ? `개 수신처(${totalPeople}명 대상)` : `${targets}명`;
+
+        alert(
+          `✅ 발송 완료!\n\n` +
+          `• 결과: ${data.type === 'team' || data.type === 'summary' ? targets : ''}${typeStr} 중 ${sent}곳 발송 성공\n` +
+          `• 상세 로그 및 미리보기:\n----------------------------------\n${preview}\n----------------------------------`
+        );
+        
         fetchTriggers();
         if (activeTab === 'logs') fetchLogs();
+      } else {
+        alert(`트리거 실행 실패: ${data.error || '알 수 없는 오류'}`);
       }
     } catch (err) {
-      alert("트리거 실행 실패");
+      alert("트리거 실행 중 서버 오류가 발생했습니다.");
     } finally {
       setSendingStatus('idle');
     }
@@ -280,6 +309,13 @@ export default function NotificationsPage() {
         
         <div className="flex items-center space-x-2">
            <button 
+             onClick={fetchBotStats}
+             className="p-3 bg-white border border-gray-100 rounded-2xl shadow-sm hover:bg-gray-50 transition-all text-gray-400"
+             title="통계 새로고침"
+           >
+              <RefreshCw className={cn("w-5 h-5", isStatsLoading && "animate-spin")} />
+           </button>
+           <button 
              onClick={() => {
                 setEditingTrigger(null);
                 setIsTriggerModalOpen(true);
@@ -290,6 +326,40 @@ export default function NotificationsPage() {
               <span>트리거 추가</span>
            </button>
         </div>
+      </div>
+
+      {/* Bot Stats Overview */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+         <div className="bg-white p-5 rounded-[24px] border border-gray-100 shadow-sm">
+            <div className="flex items-center justify-between mb-2">
+               <span className="text-[11px] font-black text-gray-400 uppercase">오늘 총 발송</span>
+               <Send className="w-4 h-4 text-blue-500" />
+            </div>
+            <p className="text-2xl font-black text-slate-800">{botStats?.today?.total || 0}건</p>
+         </div>
+         <div className="bg-white p-5 rounded-[24px] border border-gray-100 shadow-sm">
+            <div className="flex items-center justify-between mb-2">
+               <span className="text-[11px] font-black text-gray-400 uppercase">성공</span>
+               <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+            </div>
+            <p className="text-2xl font-black text-emerald-600">{botStats?.today?.success || 0}건</p>
+         </div>
+         <div className="bg-white p-5 rounded-[24px] border border-gray-100 shadow-sm">
+            <div className="flex items-center justify-between mb-2">
+               <span className="text-[11px] font-black text-gray-400 uppercase">실패</span>
+               <XCircle className="w-4 h-4 text-red-500" />
+            </div>
+            <p className="text-2xl font-black text-red-600">{botStats?.today?.failure || 0}건</p>
+         </div>
+         <div className="bg-white p-5 rounded-[24px] border border-gray-100 shadow-sm">
+            <div className="flex items-center justify-between mb-2">
+               <span className="text-[11px] font-black text-gray-400 uppercase">실시간 감지</span>
+               <Clock className="w-4 h-4 text-indigo-500" />
+            </div>
+            <p className="text-2xl font-black text-slate-800">
+               {botStats?.byType?.find((t: any) => t.notify_type === 'checkin')?.count || 0}건
+            </p>
+         </div>
       </div>
 
       {/* GAS Sub-header / Tabs */}

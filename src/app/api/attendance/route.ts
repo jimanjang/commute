@@ -82,6 +82,36 @@ export async function GET(request: Request) {
       console.warn("MySQL overlay failed:", dbErr);
     }
 
+    // --- Schedule/Leave Overlay for the entire month ---
+    let scheduleMap = new Map();
+    try {
+      const pool = (await import("@/lib/mysql")).default;
+      // 1. Get user email first
+      const [pRows]: any = await pool.query(
+        "SELECT Email FROM t_secom_person WHERE Name LIKE ? OR Sabun = ? LIMIT 1",
+        [`%${searchName}%`, rows[0]?.Sabun || ""]
+      );
+      
+      if (pRows && pRows.length > 0 && pRows[0].Email) {
+        const email = pRows[0].Email;
+        const [sRows]: any = await pool.query(
+          "SELECT date, sheet_type_description FROM t_secom_schedule WHERE email = ? AND date LIKE ?",
+          [email, `${yearMonthParam}%`]
+        );
+        for (const s of sRows) {
+          const dateStr = s.date instanceof Date ? s.date.toISOString().split('T')[0] : s.date;
+          if (!scheduleMap.has(dateStr)) scheduleMap.set(dateStr, []);
+          if (s.sheet_type_description) scheduleMap.get(dateStr).push(s.sheet_type_description);
+        }
+        // Join them
+        for (const [date, descs] of scheduleMap.entries()) {
+          scheduleMap.set(date, (descs as string[]).join(', '));
+        }
+      }
+    } catch (sErr) {
+      console.warn("Schedule overlay failed:", sErr);
+    }
+
     // Transform Data For Frontend (Formatting)
     const formattedRows = rows.map(row => {
       // WorkDate: "20260318" -> "2026-03-18"
@@ -136,6 +166,7 @@ export async function GET(request: Request) {
         OWTime: (row.OWTime || 0) / 60,
         NWTime: (row.NWTime || 0) / 60,
         HWTime: (row.HWTime || 0) / 60,
+        scheduleDescription: scheduleMap.get(formattedWorkDate) || null
       };
 
     });

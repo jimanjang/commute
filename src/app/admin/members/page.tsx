@@ -138,14 +138,22 @@ export default function MembersPage() {
                   </td>
 
                   <td className="px-5 py-6 text-center whitespace-nowrap">
-                    <div className={cn(
-                      "px-3 py-1.5 rounded-xl text-[11px] font-black inline-flex items-center shadow-sm ring-1",
-                      user.status === "출근" || user.status === "재직" || user.status === "Active" 
-                        ? "bg-emerald-50 text-emerald-600 ring-emerald-100" 
-                        : "bg-gray-50 text-gray-400 ring-gray-100"
-                    )}>
-                      <div className={cn("w-1.5 h-1.5 rounded-full mr-2", (user.status === "출근" || user.status === "재직" || user.status === "Active") ? "bg-emerald-500" : "bg-gray-300")} />
-                      {user.status || "미출근"}
+                    <div className="flex flex-col items-center space-y-1">
+                      <div className={cn(
+                        "px-3 py-1.5 rounded-xl text-[11px] font-black inline-flex items-center shadow-sm ring-1",
+                        user.status === "출근" || user.status === "재직" || user.status === "Active" 
+                          ? "bg-emerald-50 text-emerald-600 ring-emerald-100" 
+                          : "bg-gray-50 text-gray-400 ring-gray-100"
+                      )}>
+                        <div className={cn("w-1.5 h-1.5 rounded-full mr-2", (user.status === "출근" || user.status === "재직" || user.status === "Active") ? "bg-emerald-500" : "bg-gray-300")} />
+                        {user.status || "미출근"}
+                      </div>
+                      
+                      {user.scheduleDescription && (
+                        <div className="px-2 py-0.5 bg-orange-50 text-orange-600 rounded-lg text-[9px] font-black ring-1 ring-orange-100 animate-pulse">
+                          [{user.scheduleDescription}]
+                        </div>
+                      )}
                     </div>
                   </td>
 

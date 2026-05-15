@@ -20,6 +20,7 @@ export interface AttendanceRecord {
   PrevWSTime?: string | null;
   PrevWCTime?: string | null;
   isSynced?: boolean;
+  scheduleDescription?: string | null;
 
   TotalWorkTime: number;
 
@@ -164,6 +165,16 @@ export function CalendarView({ data, onDateSelect, selectedDate, onMonthChange }
                   
                   {isLate && <div className="text-[10px] text-orange-500 font-bold tracking-tight text-center">지각</div>}
                   {isAbsent && <div className="text-[10px] text-red-500 font-bold tracking-tight text-center">결근</div>}
+
+                  {dayData?.scheduleDescription && (
+                    <div className="mt-1 flex flex-col gap-1 w-full items-center">
+                      {dayData.scheduleDescription.split(', ').filter(d => d !== '근무일' && d !== '보정시간' && d !== '휴가 발생').map((desc, idx) => (
+                        <div key={idx} className="text-[8px] bg-orange-50 text-orange-600 px-1 py-0.5 rounded-md font-black ring-1 ring-orange-100 text-center truncate w-full max-w-[55px]">
+                          {desc}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </>
               )}
             </div>

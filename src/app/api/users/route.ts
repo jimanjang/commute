@@ -2,182 +2,142 @@ import { NextResponse } from "next/server";
 import { BigQuery } from "@google-cloud/bigquery";
 import path from "path";
 import { getKstDate, getTodayStr } from "@/lib/time";
-import { getGwsUserMap } from "@/lib/gws-team";
-
-function isToday(dateString: string | null) {
-  if (!dateString) return true;
-  const todayStr = getTodayStr();
-  return dateString === todayStr;
-}
 
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const dateParam = searchParams.get("date");
-    
-    const targetIsToday = isToday(dateParam);
     const dbDateParam = dateParam ? dateParam.replace(/-/g, '') : null;
+    const isTargetToday = !dateParam || dateParam === getTodayStr();
 
-    const keyFilename = path.join(process.cwd(), "service-account.json");
-    const bigquery = new BigQuery({ keyFilename });
+    const bigquery = await (await import("@/lib/bigquery-oauth")).getBigQueryClient();
+    const pool = (await import("@/lib/mysql")).default;
 
-    // 1. BigQuery에서 실시간 정보 조회
-    let bqQuery = "";
-    if (targetIsToday && !dateParam) {
-      // Default "Today" view without explicit date selection
-      bqQuery = `
-        SELECT 
-          p.Name as name, p.Sabun as sabun, p.Department as department, p.Team as team, p.Part as part, 
-          p.WorkGroup as workGroup, p.WorkStatus as workStatus, p.JoiningDate as joiningDate,
-          w.WSTime as checkIn, w.WCTime as checkOut, w.bLate, w.bAbsent, w.ModifyUser
-        FROM \`secom-data.secom.person\` p
-        LEFT JOIN \`secom-data.secom.workhistory_today\` w ON p.Name = w.Name
-        WHERE p.Name IS NOT NULL AND p.Name != '' AND p.Name != '미등록사용자'
-          AND p.WorkGroup IN ('002', '006', '007')
-        ORDER BY p.Name ASC
-      `;
-    } else {
-      // Explicit date selection (including today)
-      bqQuery = `
-        SELECT 
-          p.Name as name, p.Sabun as sabun, p.Department as department, p.Team as team, p.Part as part, 
-          p.WorkGroup as workGroup, p.WorkStatus as workStatus, p.JoiningDate as joiningDate,
-          w.WSTime as checkIn, w.WCTime as checkOut, w.bLate, w.bAbsent, w.ModifyUser
-        FROM \`secom-data.secom.person\` p
-        LEFT JOIN (
-           SELECT Name, WSTime, WCTime, bLate, bAbsent, ModifyUser FROM \`secom-data.secom.workhistory\` WHERE WorkDate = '${dbDateParam}'
+    // 1. Get Primary Roster and Fingerprint Records (KR Location)
+    const bqQuery = `
+      SELECT 
+        p.Name as name, p.Sabun as sabun, p.Department as department, p.Team as team, p.Part as part, 
+        p.WorkGroup as workGroup, p.WorkStatus as workStatus, p.JoiningDate as joiningDate,
+        w.WSTime as checkIn, w.WCTime as checkOut, w.bLate, w.bAbsent, w.ModifyUser
+      FROM \`secom-data.secom.person\` p
+      LEFT JOIN (
+         SELECT Name, WSTime, WCTime, bLate, bAbsent, ModifyUser, InsertTime,
+                ROW_NUMBER() OVER (PARTITION BY Name ORDER BY InsertTime DESC) as rn
+         FROM (
+           SELECT Name, WSTime, WCTime, bLate, bAbsent, ModifyUser, InsertTime FROM \`secom-data.secom.workhistory\` WHERE WorkDate = '${dbDateParam || getTodayStr().replace(/-/g, '')}'
            UNION ALL
-           SELECT Name, WSTime, WCTime, bLate, bAbsent, ModifyUser FROM \`secom-data.secom.workhistory_today\` WHERE WorkDate = '${dbDateParam}'
-        ) w ON p.Name = w.Name
-        WHERE p.Name IS NOT NULL AND p.Name != '' AND p.Name != '미등록사용자'
-          AND p.WorkGroup IN ('002', '006', '007')
-        ORDER BY p.Name ASC
-      `;
-    }
+           SELECT Name, WSTime, WCTime, bLate, bAbsent, ModifyUser, InsertTime FROM \`secom-data.secom.workhistory_today\` WHERE WorkDate = '${dbDateParam || getTodayStr().replace(/-/g, '')}'
+         )
+      ) w ON p.Name = w.Name AND w.rn = 1
+      WHERE p.Name IS NOT NULL AND p.Name != '' AND p.Name != '미등록사용자'
+        AND p.WorkGroup IN ('002', '006', '007')
+      ORDER BY p.Name ASC
+    `;
+    const [bqRows] = await bigquery.query({ 
+      query: bqQuery,
+      location: 'asia-northeast3'
+    });
 
-    const [bqRows] = await bigquery.query({ query: bqQuery });
+    // 2. Get Bridge (Name -> Email) from MySQL
+    const [personRows]: any = await pool.query("SELECT Name, Email FROM t_secom_person WHERE Email IS NOT NULL AND Email != ''");
+    const nameToEmail = new Map();
+    personRows.forEach((p: any) => nameToEmail.set(p.Name, p.Email.toLowerCase()));
+
+    // 3. Get Schedules from MySQL
+    const targetDateStr = dateParam || getTodayStr();
+    const [scheduleRows]: any = await pool.query("SELECT email, sheet_type_description, start_time, end_time FROM t_secom_schedule WHERE date = ?", [targetDateStr]);
+    const emailToSchedule = new Map();
+    scheduleRows.forEach((s: any) => {
+      const email = s.email.toLowerCase();
+      const id = email.split('@')[0].split('.')[0];
+
+      if (!emailToSchedule.has(email)) emailToSchedule.set(email, []);
+      emailToSchedule.get(email).push(s);
+
+      if (id && !emailToSchedule.has(id)) emailToSchedule.set(id, emailToSchedule.get(email));
+    });
     
-    // 1.5 MySQL Overlay (Immediately reflect changes made via Admin Web)
-    let mysqlMap = new Map();
-    let personMap = new Map(); // Store permanent person data like Email
-    
-    try {
-      const pool = (await import("@/lib/mysql")).default;
-      const todayStr = getTodayStr();
-      const kstTodayStr = todayStr.replace(/-/g, '');
+    // Get Current Time for "Late" check
+    const nowKst = getKstDate();
+    const currentHhMm = `${String(nowKst.getHours()).padStart(2, '0')}:${String(nowKst.getMinutes()).padStart(2, '0')}`;
+
+    // 4. Merge All
+    const users = bqRows.map((r: any) => {
+      const email = nameToEmail.get(r.name);
+      const mysqlId = email ? email.split('@')[0] : null;
+      const schedules = email ? (emailToSchedule.get(email) || emailToSchedule.get(mysqlId)) : null;
       
-      // Fetch attendance history for overlay
-      const [mysqlRows]: any = await pool.query(
-        "SELECT Name, WSTime, WCTime, bLate, bAbsent, ModifyUser, ModifyTime FROM t_secom_workhistory WHERE WorkDate = ?",
-        [dbDateParam || kstTodayStr]
-      );
+      let status = "-"; 
+      if (r.checkIn) status = Number(r.bLate) === 1 ? "지각" : "출근";
+      
+      let scheduleDesc = "";
+      let startTime = null;
+      let endTime = null;
 
-      if (mysqlRows && mysqlRows.length > 0) {
-        for (const r of mysqlRows) {
-          mysqlMap.set(r.Name, r);
+      if (schedules) {
+        scheduleDesc = schedules.map((s: any) => s.sheet_type_description).join(", ");
+        startTime = schedules.find((s: any) => s.start_time)?.start_time || null;
+        endTime = schedules.find((s: any) => s.end_time)?.end_time || null;
+
+        const isExcluded = ['휴가', '반차', '공가', '병가', '경조', '검진', '공휴일', '휴원', '조퇴', '결근', '회의', '업무'].some(k => scheduleDesc.includes(k));
+
+        if (scheduleDesc.includes("-") || isExcluded) {
+          if (status === "-") {
+            status = isExcluded ? "휴가" : "-"; // Mark as Vacation if it's meeting/work but no check-in? 
+            // Actually, if it's excluded from Target, it should behave like Vacation or Off.
+            if (['회의', '업무'].some(k => scheduleDesc.includes(k))) status = "휴가"; 
+            else if (['휴가', '반차', '공가', '병가', '경조', '검진', '공휴일', '휴원', '조퇴', '결근'].some(k => scheduleDesc.includes(k))) status = "휴가";
+            else status = "-";
+          }
+        } else {
+          // Work day (strictly '근무일' or similar)
+          if (!r.checkIn) {
+            if (isTargetToday && startTime && currentHhMm > startTime) {
+              status = "미출근"; 
+            } else {
+              status = "출근 전"; 
+            }
+          }
         }
       }
 
-      // Fetch permanent person data (Email)
-      const [personRows]: any = await pool.query("SELECT Sabun, Name, Email FROM t_secom_person");
-      if (personRows && personRows.length > 0) {
-        for (const p of personRows) {
-          // Use Sabun as primary key if available, else Name
-          if (p.Sabun) personMap.set(p.Sabun, p);
-          else personMap.set(p.Name, p);
-        }
-      }
+      const formatTime = (t: string | null) => {
+        if (!t) return null;
+        if (t.length >= 14) return `${t.substring(8,10)}:${t.substring(10,12)}`;
+        if (t.length >= 5) return t.substring(0,5);
+        return t;
+      };
 
-    } catch (mysqlErr) {
-      console.warn("[Auth] MySQL overlay failed for dashboard:", mysqlErr);
-    }
-
-    // 1.6 GWS 오버레이: 다중 키 기반 매핑 (email, firstName, sabun)
-    // 전체 사용자 정보를 단일 GWS API로 로드
-    let gwsMap = new Map<string, { email: string; team: string | null }>();
-    try {
-      gwsMap = await getGwsUserMap();
-    } catch (gwsErr) {
-      console.warn("[GWS] User lookup failed:", gwsErr);
-    }
-
-    // 2. 구성원 데이터 매핑
-    const users = bqRows.map((bu: any) => {
-      // Use MySQL data if available, otherwise use BigQuery data
-      const fresh = mysqlMap.get(bu.name) || bu;
-      
-      // 1) MySQL 수동 이메일
-      const personInfo = (bu.sabun && personMap.get(bu.sabun)) || personMap.get(bu.name) || {};
-      const storedEmail = (personInfo as any).Email || "";
-
-      // 2) 매칭 시도: 이메일 -> 영문 이름(firstName) -> 사번(sabun) 순서
-      const firstName = bu.name?.split('(')[0]?.toLowerCase()?.trim() || "";
-      const gwsInfo = 
-        (storedEmail && gwsMap.get(storedEmail.toLowerCase())) || 
-        (firstName && gwsMap.get(firstName)) || 
-        (bu.sabun && gwsMap.get(bu.sabun)) || 
-        undefined;
-
-      let status = "미출근";
-      if (fresh.WSTime || fresh.checkIn) {
-        status = "출근";
-        if (fresh.bLate === "1" || fresh.bLate === 1) status = "지각";
-      } else if (fresh.bAbsent === "1" || fresh.bAbsent === 1) {
-        status = "결근";
-      }
+      const displayName = r.name.replace(/^당근_/, '');
 
       return {
-        name: bu.name?.trim() || "이름없음",
-        displayName: bu.name?.trim() || "이름없음",
-        sabun: bu.sabun,
-        email: gwsInfo?.email || storedEmail,
-        team: (() => {
-          // GWS team (organizations.department) 우선 > BQ Team > BQ Department
-          if (gwsInfo?.team) return gwsInfo.team;
-          return bu.team || bu.department || "-";
-        })(),
-        part: bu.part || "",
-        workGroup: bu.workGroup || "-",
-        workStatus: bu.workStatus || "재직",
-        joiningDate: bu.joiningDate || "-",
-        checkIn: (fresh.WSTime || fresh.checkIn) ? 
-          ((fresh.WSTime || fresh.checkIn).length >= 14 ? 
-            `${(fresh.WSTime || fresh.checkIn).substring(8, 10)}:${(fresh.WSTime || fresh.checkIn).substring(10, 12)}` : 
-            (fresh.WSTime || fresh.checkIn).substring(0, 5)) : "-",
-        checkOut: (fresh.WCTime || fresh.checkOut) ? 
-          ((fresh.WCTime || fresh.checkOut).length >= 14 ? 
-            `${(fresh.WCTime || fresh.checkOut).substring(8, 10)}:${(fresh.WCTime || fresh.checkOut).substring(10, 12)}` : 
-            (fresh.WCTime || fresh.checkOut).substring(0, 5)) : "-",
-        status: status,
-        isModified: !!(fresh.ModifyUser && fresh.ModifyUser !== '-1' && fresh.ModifyUser !== '')
+        ...r,
+        name: r.name,
+        displayName,
+        email,
+        checkIn: formatTime(r.checkIn),
+        checkOut: formatTime(r.checkOut),
+        status,
+        startTime,
+        endTime,
+        isModified: !!r.ModifyUser,
+        scheduleDescription: scheduleDesc
       };
     });
 
+    const stats = {
+      todayTarget: users.filter(u => u.status !== "휴가" && u.status !== "-").length,
+      todayCheckIn: users.filter(u => u.status === "출근" || u.status === "지각").length,
+      lateMissing: users.filter(u => u.status === "지각" || u.status === "미출근").length,
+      beforeWorkCount: users.filter(u => u.status === "출근 전").length,
+      offCount: users.filter(u => u.status === "-").length,
+      vacationCount: users.filter(u => u.status === "휴가").length
+    };
 
-
-    // 3. 실시간 통계 산출 (Merged Data 기준)
-    const todayCheckIn = users.filter(u => u.status === "출근" || u.status === "지각").length;
-    const lateMissing = users.filter(u => u.status === "지각" || u.status === "미출근" || u.status === "결근" || u.checkOut === "-").length;
-    const modifiedCount = users.filter(u => u.isModified).length;
-
-    return NextResponse.json({ 
-      users, 
-      stats: {
-        totalMember: users.length,
-        todayCheckIn,
-        lateMissing,
-        modifiedCount
-      }
-    });
-
+    return NextResponse.json({ users, stats });
 
   } catch (error) {
-    console.error("Failed to fetch merged users:", error);
-    
-    return NextResponse.json({
-      users: [],
-      stats: { totalMember: 0, todayCheckIn: 0, lateMissing: 0, modifiedCount: 0 }
-    });
+    console.error("[Users API] Error:", error);
+    return NextResponse.json({ error: "Failed to fetch users" }, { status: 500 });
   }
 }
-

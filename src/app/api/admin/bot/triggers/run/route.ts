@@ -1,528 +1,215 @@
 import { NextResponse } from "next/server";
 import pool from "@/lib/mysql";
-import { BigQuery } from "@google-cloud/bigquery";
+import { getBigQueryClient } from "@/lib/bigquery-oauth";
 import { sendSlackBotNotification, sendSlackDMByEmail } from "@/lib/slack";
-import path from "path";
 import { getKstDate, getTodayStr } from "@/lib/time";
 
 export async function POST(request: Request) {
   try {
     const { id } = await request.json();
+    const isDryRun = process.env.DRY_RUN === 'true';
     
-    // 1. Get Trigger Info & Targets
+    // 1. Get Trigger Info
     const [rows]: any = await pool.query("SELECT * FROM t_secom_trigger WHERE id = ?", [id]);
     if (rows.length === 0) return NextResponse.json({ error: "Trigger not found" }, { status: 404 });
     const trigger = rows[0];
 
     const [targetRows]: any = await pool.query("SELECT sabun FROM t_secom_trigger_target WHERE trigger_id = ?", [id]);
-    const triggerTargets = new Set(targetRows.map((t: any) => t.sabun));
+    const triggerTargets = new Set(targetRows.map((t: any) => t.sabun?.trim()));
 
-    // 2. Execution Logic
-    const kstNow = getKstDate();
+    // 2. Context & Reference Time
     const todayStr = getTodayStr();
     const dbDateParam = todayStr.replace(/-/g, '');
+    const nowKst = getKstDate();
+    const currentHhMm = `${String(nowKst.getHours()).padStart(2, '0')}:${String(nowKst.getMinutes()).padStart(2, '0')}`;
     
-    const keyFilename = path.join(process.cwd(), "service-account.json");
-    const bigquery = new BigQuery({ keyFilename });
-
-    // MySQL Overlay for Emails
-    const [personRows]: any = await pool.query("SELECT Name, Sabun, Email FROM t_secom_person");
-    const personMap = new Map();
-    for (const p of personRows) {
-      if (p.Sabun) personMap.set(p.Sabun, p);
-      if (p.Name) personMap.set(p.Name, p);
+    let refHhMm = currentHhMm;
+    // For regular triggers, use time_value. For REALTIME, always use current time to catch all check-ins up to now.
+    if (trigger.time_type !== 'REALTIME_CHECKIN') {
+      if (trigger.time_value && trigger.time_value.includes(":")) {
+        refHhMm = trigger.time_value;
+      } else if (trigger.time_value && trigger.time_value.length === 2 && !isNaN(Number(trigger.time_value))) {
+        refHhMm = `${trigger.time_value}:00`;
+      }
     }
 
-    // ─── REALTIME_CHECKIN: Special branch ───
-    if (trigger.time_type === 'REALTIME_CHECKIN') {
-      // 1) Get today's raw check-in records from MySQL (Any entry for today)
-      const [checkinRows]: any = await pool.query(
-        `SELECT Name, WSTime FROM t_secom_workhistory WHERE WorkDate = ?`,
-        [dbDateParam]
-      );
+    const bigquery = await getBigQueryClient();
 
-      // Maps for quick lookup
-      const checkinBySabun = new Map<string, string>(); // sabun -> WSTime (can be empty string)
-      const checkedInNames = new Set<string>();
+    // 3. Roster & Maps
+    const rosterQuery = `SELECT Name as name, Sabun as sabun, Team as team, WorkGroup as workGroup FROM \`secom-data.secom.person\` WHERE Name IS NOT NULL AND Name != '' AND WorkGroup IN ('002', '006', '007')`;
+    const [rosterRows] = await bigquery.query({ query: rosterQuery, location: 'asia-northeast3' });
 
-      // Populate check-in info
-      for (const row of checkinRows) {
-        checkedInNames.add(row.Name);
-        const p = personMap.get(row.Name);
-        if (p && p.Sabun) {
-          checkinBySabun.set(p.Sabun, row.WSTime || '');
-        }
-      }
-
-      // 2) Get already-processed entries for this trigger today
-      const [alreadySentRows]: any = await pool.query(
-        `SELECT sabun, notify_type, status FROM t_secom_trigger_log
-         WHERE trigger_id = ? AND DATE(CONVERT_TZ(created_at, '+00:00', '+09:00')) = ?`,
-        [id, todayStr]
-      );
-
-      const alreadySentCheckin = new Set<string>(
-        alreadySentRows
-          .filter((r: any) => r.notify_type === 'checkin' && r.status === 'success')
-          .map((r: any) => r.sabun)
-      );
-      const alreadyWaiting = new Set<string>(
-        alreadySentRows
-          .filter((r: any) => r.notify_type === 'checkin' && r.status === 'waiting')
-          .map((r: any) => r.sabun)
-      );
-      const alreadySentReminder = new Set<string>(
-        alreadySentRows
-          .filter((r: any) => r.notify_type === 'reminder')
-          .map((r: any) => r.sabun)
-      );
-
-      // 3) Process NEW check-ins (Not in log at all today)
-      let successCount = 0;
-      let waitingCount = 0;
-
-      // Calculate trigger's created_at in KST YYYYMMDDHHMMSS format
-      const tKst = new Date(new Date(trigger.created_at).toLocaleString("en-US", { timeZone: "Asia/Seoul" }));
-      const tY = tKst.getFullYear();
-      const tM = String(tKst.getMonth() + 1).padStart(2, '0');
-      const tD = String(tKst.getDate()).padStart(2, '0');
-      const tH = String(tKst.getHours()).padStart(2, '0');
-      const tm = String(tKst.getMinutes()).padStart(2, '0');
-      const ts = String(tKst.getSeconds()).padStart(2, '0');
-      const triggerCreatedAtKst = `${tY}${tM}${tD}${tH}${tm}${ts}`;
-
-      // Filter people who checked in but haven't been processed yet
-      for (const [sabun, wsTime] of checkinBySabun.entries()) {
-        // If trigger has targets, skip non-targets
-        if (triggerTargets.size > 0 && !triggerTargets.has(sabun)) continue;
-        
-        // Skip if already successfully sent or already waiting
-        if (alreadySentCheckin.has(sabun) || alreadyWaiting.has(sabun)) continue;
-
-        // Skip if checkin time is BEFORE the trigger was created
-        if (wsTime && wsTime.trim() !== '') {
-          let paddedWsTime = wsTime.trim();
-          if (paddedWsTime.length === 12) paddedWsTime += '00';
-          if (paddedWsTime < triggerCreatedAtKst) {
-            continue; // Ignore check-ins that occurred before the trigger was created
-          }
-        }
-
-        const p = personMap.get(sabun);
-        if (!p || !p.Email) continue;
-
-        if (wsTime && wsTime.trim() !== '') {
-          // A) WSTime available -> Send notification
-          try {
-            await sendSlackBotNotification(p.Email, 'checkin', { time: wsTime, name: p.Name });
-            successCount++;
-            await pool.query(
-              "INSERT INTO t_secom_trigger_log (trigger_id, trigger_name, sabun, name, email, notify_type, status) VALUES (?, ?, ?, ?, ?, ?, ?)",
-              [id, trigger.function_name, sabun, p.Name, p.Email, 'checkin', 'success']
-            );
-          } catch (err: any) {
-            console.error(`[Realtime Checkin] Error (${p.Name}):`, err);
-            await pool.query(
-              "INSERT INTO t_secom_trigger_log (trigger_id, trigger_name, sabun, name, email, notify_type, status, error_message) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-              [id, trigger.function_name, sabun, p.Name, p.Email, 'checkin', 'failure', err.message]
-            );
-          }
-        } else {
-          // B) WSTime NOT yet available -> Mark as waiting
-          waitingCount++;
-          await pool.query(
-            "INSERT INTO t_secom_trigger_log (trigger_id, trigger_name, sabun, name, email, notify_type, status, error_message) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            [id, trigger.function_name, sabun, p.Name, p.Email, 'checkin', 'waiting', 'WSTime not yet available — will retry on next poll']
-          );
-        }
-      }
-
-      // 4) Resolve 'waiting' entries whose WSTime is now available
-      let waitingResolvedCount = 0;
-      for (const sabun of alreadyWaiting) {
-        const wsTime = checkinBySabun.get(sabun);
-        if (wsTime && wsTime.trim() !== '') {
-          const p = personMap.get(sabun);
-          if (!p || !p.Email) continue;
-
-          try {
-            await sendSlackBotNotification(p.Email, 'checkin', { time: wsTime, name: p.Name });
-            waitingResolvedCount++;
-            await pool.query(
-              `UPDATE t_secom_trigger_log SET status = 'success', error_message = NULL 
-               WHERE trigger_id = ? AND sabun = ? AND notify_type = 'checkin' AND status = 'waiting'
-               AND DATE(CONVERT_TZ(created_at, '+00:00', '+09:00')) = ?`,
-              [id, sabun, todayStr]
-            );
-          } catch (err: any) {
-            console.error(`[Realtime Checkin] Waiting Resolve Error (${p.Name}):`, err);
-            await pool.query(
-              `UPDATE t_secom_trigger_log SET status = 'failure', error_message = ? 
-               WHERE trigger_id = ? AND sabun = ? AND notify_type = 'checkin' AND status = 'waiting'
-               AND DATE(CONVERT_TZ(created_at, '+00:00', '+09:00')) = ?`,
-              [err.message, id, sabun, todayStr]
-            );
-          }
-        }
-      }
-
-      // 5) Reminders (After 10:00 AM)
-      let reminderCount = 0;
-      if (kstNow.getHours() >= 10 && alreadySentReminder.size === 0) {
-        // Target list for reminders
-        let reminderTargets: any[] = [];
-        if (triggerTargets.size > 0) {
-          for (const s of triggerTargets) {
-            const p = personMap.get(s);
-            if (p && !checkedInNames.has(p.Name)) reminderTargets.push(p);
-          }
-        } else {
-          for (const [, p] of personMap.entries()) {
-            if (p.Email && p.Sabun && !checkedInNames.has(p.Name)) reminderTargets.push(p);
-          }
-        }
-
-        for (const user of reminderTargets) {
-          try {
-            await sendSlackBotNotification(user.Email, 'reminder', { name: user.Name });
-            reminderCount++;
-            await pool.query(
-              "INSERT INTO t_secom_trigger_log (trigger_id, trigger_name, sabun, name, email, notify_type, status) VALUES (?, ?, ?, ?, ?, ?, ?)",
-              [id, trigger.function_name, user.Sabun, user.Name, user.Email, 'reminder', 'success']
-            );
-          } catch (err: any) {
-            console.error(`[Realtime Reminder] Error (${user.Name}):`, err);
-            await pool.query(
-              "INSERT INTO t_secom_trigger_log (trigger_id, trigger_name, sabun, name, email, notify_type, status, error_message) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-              [id, trigger.function_name, user.Sabun, user.Name, user.Email, 'reminder', 'failure', err.message]
-            );
-          }
-        }
-      }
-
-      // Update last_run
-      await pool.query("UPDATE t_secom_trigger SET last_run = CURRENT_TIMESTAMP WHERE id = ?", [id]);
-
-      return NextResponse.json({
-        success: true,
-        checkin_sent: successCount,
-        waiting_resolved: waitingResolvedCount,
-        waiting_tracked: waitingCount,
-        reminder_sent: reminderCount
-      });
-    }
-
-    // ─── TEAM_CHANNEL_CHECKIN: Team channel summary ───
-    if (trigger.time_type === 'TEAM_CHANNEL_CHECKIN') {
-      const { getGwsUserMap } = await import("@/lib/gws-team");
-      const { WebClient } = await import("@slack/web-api");
-      const slack = new WebClient(process.env.SLACK_TOKEN);
-
-      // 1) 오늘 출근 기록 조회
-      const [checkinRows]: any = await pool.query(
-        `SELECT Name, WSTime FROM t_secom_workhistory WHERE WorkDate = ?`,
-        [dbDateParam]
-      );
-      // Filter out rows where WSTime is empty
-      const validCheckins = checkinRows.filter((r: any) => r.WSTime && r.WSTime.trim() !== "");
-      const checkedInNames = new Set(validCheckins.map((r: any) => r.Name));
-      const wsTimeByName = new Map(validCheckins.map((r: any) => [r.Name, r.WSTime]));
-
-      // 2) 전체 대상자 목록
-      const [allPersonRows]: any = await pool.query(
-        "SELECT Sabun, Name, Email FROM t_secom_person WHERE Email IS NOT NULL AND Email != '' AND RetireDate >= DATE_FORMAT(NOW(), '%Y%m%d')"
-      );
-
-      // 3) GWS에서 사용자 정보 조회 (이메일/이름/사번 다중 매핑)
-      const gwsMap = await getGwsUserMap();
-
-      // 4) 팀별로 그룹핑
-      const teamGroups = new Map<string, { checkin: any[], absent: any[] }>();
-      for (const p of allPersonRows) {
-        const storedEmail = p.Email?.toLowerCase() || "";
-        const firstName = p.Name?.split('(')[0]?.toLowerCase()?.trim() || "";
-        const sabun = p.Sabun || "";
-        
-        const gwsInfo = 
-          (storedEmail && gwsMap.get(storedEmail)) || 
-          (firstName && gwsMap.get(firstName)) || 
-          (sabun && gwsMap.get(sabun)) || 
-          undefined;
-
-        const team = gwsInfo?.team || null;
-        if (!team) continue;
-        if (!teamGroups.has(team)) teamGroups.set(team, { checkin: [], absent: [] });
-        const group = teamGroups.get(team)!;
-        if (checkedInNames.has(p.Name)) {
-          group.checkin.push({ ...p, wsTime: wsTimeByName.get(p.Name) || '' });
-        } else {
-          group.absent.push(p);
-        }
-      }
-
-      // 5) 활성화된 채널 매핑 조회
-      const [channelRows]: any = await pool.query(
-        "SELECT team_name, channel_id, channel_name FROM t_secom_slack_channel WHERE is_active = 1"
-      );
-
-      let channelsSent = 0;
-      for (const ch of channelRows) {
-        const group = teamGroups.get(ch.team_name);
-        if (!group) continue;
-
-        // 미출근자가 없으면 메시지 발송 생략
-        if (group.absent.length === 0) continue;
-
-        const absentLines = group.absent.map(u => `    ◦ ${u.Name}`).join('\n');
-
-        const text = [
-          `<!channel> 앗! 아직 오늘 출근 등록이 되지 않은 분들이 있어요 🙌`,
-          `혹시 옆자리에 이미 와 계신데 지문만 깜빡하신 거라면…?`,
-          `👉 살짝 알려주세요 ✨`,
-          ``,
-          `(휴가나 외근이신 분들은 편하게 패스해 주세요!)`,
-          ``,
-          `• 미등록자(${group.absent.length}명)`,
-          absentLines
-        ].join('\n');
-
-        try {
-          if (process.env.DRY_RUN === 'true') {
-            console.log(`\x1b[33m[DRY RUN]\x1b[0m Would send team summary to ${ch.channel_name || ch.channel_id} (${ch.team_name}): ${text.replace(/\n/g, ' ')}`);
-            channelsSent++;
-            await pool.query(
-              "INSERT INTO t_secom_trigger_log (trigger_id, trigger_name, sabun, name, email, notify_type, status) VALUES (?, ?, ?, ?, ?, ?, ?)",
-              [id, trigger.function_name, null, ch.team_name, ch.channel_name || ch.channel_id, 'team_summary', 'success']
-            );
-          } else {
-            await slack.chat.postMessage({ channel: ch.channel_id, text, mrkdwn: true });
-            channelsSent++;
-            console.log(`[TEAM_CHANNEL] Sent to ${ch.channel_name || ch.channel_id} (${ch.team_name})`);
-            // 발송 이력 기록
-            await pool.query(
-              "INSERT INTO t_secom_trigger_log (trigger_id, trigger_name, sabun, name, email, notify_type, status) VALUES (?, ?, ?, ?, ?, ?, ?)",
-              [id, trigger.function_name, null, ch.team_name, ch.channel_name || ch.channel_id, 'team_summary', 'success']
-            );
-          }
-        } catch (err: any) {
-          console.error(`[TEAM_CHANNEL] Error sending to ${ch.team_name}:`, err.message);
-          await pool.query(
-            "INSERT INTO t_secom_trigger_log (trigger_id, trigger_name, sabun, name, email, notify_type, status, error_message) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            [id, trigger.function_name, null, ch.team_name, ch.channel_name || ch.channel_id, 'team_summary', 'failure', err.message]
-          );
-        }
-      }
-
-      await pool.query("UPDATE t_secom_trigger SET last_run = CURRENT_TIMESTAMP WHERE id = ?", [id]);
-      return NextResponse.json({ success: true, channels_sent: channelsSent, teams: teamGroups.size });
-    }
-
-    // ─── CHECKOUT REMINDER ───
-    if (trigger.function_name === 'send_checkout_reminder') {
-      const [alreadySentRows]: any = await pool.query(
-        `SELECT sabun FROM t_secom_trigger_log
-         WHERE trigger_id = ? AND notify_type = 'checkout_reminder' AND status = 'success' AND DATE(CONVERT_TZ(created_at, '+00:00', '+09:00')) = ?`,
-        [id, todayStr]
-      );
-      const alreadySent = new Set(alreadySentRows.map((r: any) => r.sabun));
-
-      let reminderTargets: any[] = [];
-      if (triggerTargets.size > 0) {
-        for (const s of triggerTargets) {
-          const p = personMap.get(s);
-          if (p && p.Email && !alreadySent.has(s)) reminderTargets.push(p);
-        }
-      } else {
-        for (const [, p] of personMap.entries()) {
-          if (p.Email && p.Sabun && !alreadySent.has(p.Sabun)) reminderTargets.push(p);
-        }
-      }
-
-      let sentCount = 0;
-      for (const user of reminderTargets) {
-        try {
-          await sendSlackBotNotification(user.Email, 'checkout_reminder');
-          sentCount++;
-          await pool.query(
-            "INSERT INTO t_secom_trigger_log (trigger_id, trigger_name, sabun, name, email, notify_type, status) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            [id, trigger.function_name, user.Sabun, user.Name, user.Email, 'checkout_reminder', 'success']
-          );
-        } catch (err: any) {
-          console.error(`[Checkout Reminder] Error (${user.Name}):`, err);
-          await pool.query(
-            "INSERT INTO t_secom_trigger_log (trigger_id, trigger_name, sabun, name, email, notify_type, status, error_message) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            [id, trigger.function_name, user.Sabun, user.Name, user.Email, 'checkout_reminder', 'failure', err.message]
-          );
-        }
-      }
-
-      await pool.query("UPDATE t_secom_trigger SET last_run = CURRENT_TIMESTAMP WHERE id = ?", [id]);
-      return NextResponse.json({ success: true, targets: reminderTargets.length, sent: sentCount });
-    }
-
-    const bqQuery = `
-      SELECT p.Name as name, p.Sabun as sabun, w.WSTime as checkIn, w.bLate, w.bAbsent
-      FROM \`secom-data.secom.person\` p
-      LEFT JOIN \`secom-data.secom.workhistory_today\` w ON p.Name = w.Name
-      WHERE p.Name IS NOT NULL AND p.WorkGroup IN ('002', '006', '007')
-    `;
-    const [bqRows] = await bigquery.query({ query: bqQuery });
-
-    const users = bqRows.map((bu: any) => {
-      const p = personMap.get(bu.sabun || bu.name);
-      const email = p?.Email;
-      let status = "미출근";
-      if (bu.checkIn) {
-        status = "출근";
-        if (bu.bLate === "1" || bu.bLate === 1) status = "지각";
-      } else if (bu.bAbsent === "1" || bu.bAbsent === 1) {
-        status = "결근";
-      }
-      return { ...bu, email, status };
+    const [bridgeRows]: any = await pool.query("SELECT Name, Email, Sabun FROM t_secom_person WHERE Email IS NOT NULL AND Email != ''");
+    const sabunToEmail = new Map();
+    const nameToEmail = new Map();
+    bridgeRows.forEach((p: any) => {
+      const email = p.Email?.toLowerCase();
+      if (p.Sabun) sabunToEmail.set(p.Sabun.trim(), email);
+      nameToEmail.set(p.Name.trim(), email);
     });
 
-    let targets: any[] = [];
-    if (trigger.function_name === 'attendance_smart_alert') {
-      targets = users;
-    } else if (trigger.function_name === 'reminder') {
-      targets = users.filter(u => u.status === "지각" || u.status === "미출근" || u.status === "결근");
-    } else if (trigger.function_name === 'checkin_confirm') {
-      targets = users.filter(u => u.status === "출근");
-    } else if (trigger.function_name.startsWith('send_slack_summary')) {
-      // 전사 근태 요약 알림
-      const totalCount = users.length;
-      const presentCount = users.filter(u => u.status === "출근" || u.status === "지각").length;
-      const lateMissingUsers = users.filter(u => u.status === "지각" || u.status === "미출근" || u.status === "결근");
+    const [scheduleRows]: any = await pool.query("SELECT email, sheet_type_description, start_time, end_time FROM t_secom_schedule WHERE date = ?", [todayStr]);
+    const emailToSchedules = new Map();
+    scheduleRows.forEach((s: any) => {
+      const email = s.email.toLowerCase();
+      const idPart = email.split('@')[0].split('.')[0];
+      if (!emailToSchedules.has(email)) emailToSchedules.set(email, []);
+      emailToSchedules.get(email).push(s);
+      if (idPart && !emailToSchedules.has(idPart)) emailToSchedules.set(idPart, emailToSchedules.get(email));
+    });
 
-      const lateList = lateMissingUsers
-        .map(u => `- *${u.name}* (${u.status})`)
-        .slice(0, 30)
-        .join("\n");
+    const exclusionKeywords = ['휴가', '반차', '공가', '병가', '경조', '검진', '공휴일', '휴원', '조퇴', '결근', '회의', '업무'];
 
-      const message = `
-*📢 [근태 요약 리포트] ${todayStr}*
-
-• *전체 구성원:* ${totalCount}명
-• *현재 출근자:* ${presentCount}명
-• *지각/누락자:* ${lateMissingUsers.length}명
-
-*📍 지각/누락 명단 (상위 30명):*
-${lateList || "- 없음"}
-
-${lateMissingUsers.length > 30 ? `_...외 ${lateMissingUsers.length - 30}명 더 있음_` : ""}
-
-> 이 알림은 트리거 설정에 의해 자동/수동으로 발송되었습니다.
-      `.trim();
-
-      try {
-        let sentCount = 0;
-        
-        let parsedReceivers: any[] = [];
-        try {
-           if (trigger.receivers) parsedReceivers = JSON.parse(trigger.receivers);
-        } catch(e) {}
-
-        if (parsedReceivers.length === 0) {
-           // 수신자가 비어있으면 기존처럼 기본 관리자(laika)에게 발송
-           await sendSlackDMByEmail("laika@daangnservice.com", message);
-           sentCount++;
-           await pool.query(
-             "INSERT INTO t_secom_trigger_log (trigger_id, trigger_name, sabun, name, email, notify_type, status) VALUES (?, ?, ?, ?, ?, ?, ?)",
-             [id, trigger.function_name, null, '전사 요약', 'laika@daangnservice.com', 'summary', 'success']
-           );
-        } else {
-           const { WebClient } = await import("@slack/web-api");
-           const slack = new WebClient(process.env.SLACK_TOKEN);
-           
-           for (const r of parsedReceivers) {
-              if (r.type === 'user') {
-                 // r.value = sabun
-                 const p = personMap.get(r.value);
-                 const email = p?.Email;
-                 if (email) {
-                    try {
-                       await sendSlackDMByEmail(email, message);
-                       sentCount++;
-                       await pool.query(
-                         "INSERT INTO t_secom_trigger_log (trigger_id, trigger_name, sabun, name, email, notify_type, status) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                         [id, trigger.function_name, r.value, p?.Name || '수신자', email, 'summary', 'success']
-                       );
-                    } catch (err: any) {
-                       await pool.query(
-                         "INSERT INTO t_secom_trigger_log (trigger_id, trigger_name, sabun, name, email, notify_type, status, error_message) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                         [id, trigger.function_name, r.value, p?.Name || '수신자', email, 'summary', 'failure', err.message]
-                       );
-                    }
-                 }
-              } else if (r.type === 'channel') {
-                 // r.value = channel_id
-                 try {
-                    if (process.env.DRY_RUN === 'true') {
-                       console.log(`[DRY RUN] Would send summary to channel ${r.value}`);
-                    } else {
-                       await slack.chat.postMessage({ channel: r.value, text: message, mrkdwn: true });
-                       console.log(`[Summary] Sent to ${r.value}`);
-                    }
-                    sentCount++;
-                    await pool.query(
-                      "INSERT INTO t_secom_trigger_log (trigger_id, trigger_name, sabun, name, email, notify_type, status) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                      [id, trigger.function_name, null, '채널발송', r.value, 'summary_channel', 'success']
-                    );
-                 } catch (err: any) {
-                    await pool.query(
-                      "INSERT INTO t_secom_trigger_log (trigger_id, trigger_name, sabun, name, email, notify_type, status, error_message) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                      [id, trigger.function_name, null, '채널발송', r.value, 'summary_channel', 'failure', err.message]
-                    );
-                 }
-              }
-           }
-        }
-
-        await pool.query("UPDATE t_secom_trigger SET last_run = CURRENT_TIMESTAMP WHERE id = ?", [id]);
-        return NextResponse.json({ success: true, targets: totalCount, sent: sentCount });
-      } catch (err: any) {
-        console.error("Summary Slack Error:", err);
-        await pool.query(
-          "INSERT INTO t_secom_trigger_log (trigger_id, trigger_name, sabun, name, email, notify_type, status, error_message) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-          [id, trigger.function_name, null, '전사 요약', 'laika@daangnservice.com', 'summary', 'failure', err.message]
-        );
-        return NextResponse.json({ error: err.message }, { status: 500 });
-      }
-    }
-
-    if (triggerTargets.size > 0) {
-      targets = targets.filter(u => triggerTargets.has(u.sabun));
-    }
-
-    let successCount = 0;
-    for (const user of targets) {
-      if (!user.email) continue;
+    const getUserStatus = (user: any, checkIn: string | null) => {
+      const email = sabunToEmail.get(user.sabun?.trim()) || nameToEmail.get(user.name?.trim());
       
-      let notifyType: 'checkin' | 'reminder' = 'reminder';
-      if (trigger.function_name === 'attendance_smart_alert') {
-        notifyType = (user.status === "출근" || user.status === "지각") ? 'checkin' : 'reminder';
-      } else {
-        notifyType = trigger.function_name === 'reminder' ? 'reminder' : 'checkin';
+      let effectiveCheckIn = null;
+      if (checkIn && checkIn.trim() !== "" && checkIn.trim() !== "0") {
+        let hhmm = "";
+        if (checkIn.length >= 12) {
+          hhmm = `${checkIn.substring(8, 10)}:${checkIn.substring(10, 12)}`;
+        } else if (checkIn.length >= 4) {
+          hhmm = `${checkIn.substring(0, 2)}:${checkIn.substring(2, 4)}`;
+        }
+        if (hhmm !== "" && hhmm <= refHhMm) effectiveCheckIn = hhmm;
       }
 
-      try {
-        await sendSlackBotNotification(user.email, notifyType, { time: user.checkIn, name: user.name });
-        successCount++;
-        await pool.query(
-          "INSERT INTO t_secom_trigger_log (trigger_id, trigger_name, sabun, name, email, notify_type, status) VALUES (?, ?, ?, ?, ?, ?, ?)",
-          [id, trigger.function_name, user.sabun, user.name, user.email, notifyType, 'success']
-        );
-      } catch (err: any) { 
-        console.error(`Run Trigger Error (${user.name}):`, err); 
-        await pool.query(
-          "INSERT INTO t_secom_trigger_log (trigger_id, trigger_name, sabun, name, email, notify_type, status, error_message) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-          [id, trigger.function_name, user.sabun, user.name, user.email, notifyType, 'failure', err.message]
-        );
+      let status = "-"; 
+      if (effectiveCheckIn) {
+        status = Number(user.bLate) === 1 ? "지각" : "출근";
       }
+
+      if (email) {
+        const idPart = email.split('@')[0].split('.')[0];
+        const schedules = emailToSchedules.get(email) || emailToSchedules.get(idPart);
+        if (schedules) {
+          const desc = schedules.map((s: any) => s.sheet_type_description).join(", ");
+          const startTime = schedules.find((s: any) => s.start_time)?.start_time || null;
+          const isExcluded = exclusionKeywords.some(k => desc.includes(k));
+          if (desc.includes("-") || isExcluded) {
+            if (status === "-") status = isExcluded ? "휴가" : "-";
+          } else if (!effectiveCheckIn) {
+            status = (startTime && refHhMm > startTime) ? "미출근" : "출근 전";
+          }
+        }
+      }
+      return { status, email, effectiveCheckIn };
+    };
+
+    const [mysqlWorkRows]: any = await pool.query("SELECT Name, Sabun, WSTime, bLate FROM t_secom_workhistory WHERE WorkDate = ?", [dbDateParam]);
+    const workMap = new Map();
+    mysqlWorkRows.forEach((w: any) => {
+      if (w.Sabun) workMap.set(w.Sabun.trim(), w);
+      if (w.Name) workMap.set(w.Name.trim(), w);
+    });
+
+    const usersWithStatus = rosterRows.map((r: any) => {
+      const work = workMap.get(r.sabun?.trim()) || workMap.get(r.name?.trim());
+      const { status, email, effectiveCheckIn } = getUserStatus({ ...r, bLate: work?.bLate }, work?.WSTime);
+      
+      // Detailed Debug for targets
+      if (triggerTargets.has(r.sabun?.trim())) {
+        console.log(`[Target Debug] Name: ${r.name}, Sabun: ${r.sabun}, Status: ${status}, CheckIn: ${work?.WSTime} -> ${effectiveCheckIn}`);
+      }
+
+      return { ...r, status, email, checkIn: effectiveCheckIn };
+    });
+
+    let resultData: any = { success: true, targets: 0, sent: 0, preview: "발송 내역이 없습니다.", type: "individual", refTime: refHhMm, totalPeople: 0 };
+
+    if (trigger.time_type === 'REALTIME_CHECKIN') {
+      let checkinToday = usersWithStatus.filter(u => u.status === "출근" || u.status === "지각");
+      if (triggerTargets.size > 0) {
+        checkinToday = checkinToday.filter(u => triggerTargets.has(u.sabun?.trim()));
+      }
+      resultData.targets = checkinToday.length;
+      resultData.totalPeople = checkinToday.length;
+      resultData.preview = checkinToday.length > 0 
+        ? `(샘플) ${checkinToday[0].name}님, 출근 확인되었습니다! (${checkinToday[0].checkIn})`
+        : "지정한 대상자 중 오늘 출근한 인원이 아직 없습니다.";
+      resultData.sent = checkinToday.length; 
+    }
+
+    else if (trigger.function_name.startsWith('send_slack_summary')) {
+      const stats = {
+        target: usersWithStatus.filter(u => u.status !== "휴가" && u.status !== "-").length,
+        checkin: usersWithStatus.filter(u => u.status === "출근" || u.status === "지각").length,
+        missing: usersWithStatus.filter(u => u.status === "미출근" || u.status === "지각").length
+      };
+      resultData.type = "summary";
+      resultData.targets = 1;
+      resultData.totalPeople = stats.target;
+      const summaryMsg = `📢 [근태 요약 리포트 (기준시각: ${refHhMm})]\n• 출근 대상: ${stats.target}명\n• 출근 완료: ${stats.checkin}명\n• 지각/누락: ${stats.missing}명\n... (상세 명단 포함)`;
+      resultData.preview = isDryRun ? `[DRY RUN] ${summaryMsg}` : summaryMsg;
+      
+      let receivers = [];
+      try { receivers = JSON.parse(trigger.receivers || "[]"); } catch(e) {}
+      let sentCount = 0;
+      for (const r of receivers) {
+        try {
+          if (!isDryRun) {
+            if (r.type === 'user') {
+              const email = sabunToEmail.get(r.value);
+              if (email) await sendSlackDMByEmail(email, summaryMsg);
+            } else {
+              const { WebClient } = await import("@slack/web-api");
+              const slack = new WebClient(process.env.SLACK_TOKEN);
+              await slack.chat.postMessage({ channel: r.value, text: summaryMsg, mrkdwn: true });
+            }
+          }
+          sentCount++;
+        } catch(e) {}
+      }
+      resultData.sent = sentCount;
+    }
+
+    else if (['reminder', 'TEAM_CHANNEL_CHECKIN', 'checkin_confirm'].includes(trigger.function_name)) {
+      let missingUsers = usersWithStatus.filter(u => u.status === "미출근" || u.status === "지각");
+      if (triggerTargets.size > 0) missingUsers = missingUsers.filter(u => triggerTargets.has(u.sabun?.trim()));
+
+      resultData.totalPeople = missingUsers.length;
+
+      const teamGroups = new Map();
+      missingUsers.forEach(u => {
+        const t = u.team || "기타";
+        if (!teamGroups.has(t)) teamGroups.set(t, []);
+        teamGroups.get(t).push(u);
+      });
+
+      const [channels]: any = await pool.query("SELECT team_name, channel_id FROM t_secom_slack_channel WHERE is_active = 1");
+      const teamMap = new Map(channels.map((c: any) => [c.team_name, c.channel_id]));
+
+      let sentCount = 0;
+      let logs = [];
+      for (const [team, uList] of teamGroups.entries()) {
+        const channelId = teamMap.get(team);
+        const names = uList.map((u: any) => `*${u.name}*`).join(", ");
+        if (!channelId) {
+          logs.push(`⚠️ [${team}] 팀은 슬랙 채널이 설정되지 않아 발송을 건너뛰었습니다. (대상: ${names})`);
+          continue;
+        }
+        const msg = `<!channel> 앗! 아직 오늘 출근 지문이 확인되지 않은 분들이 있어요 🙌 (기준: ${refHhMm})\n• 대상자: ${names}`;
+        try {
+          if (isDryRun) {
+            logs.push(`🔍 [DRY RUN - ${team}] 슬랙 발송 생략 (대상: ${names})`);
+          } else {
+            const { WebClient } = await import("@slack/web-api");
+            const slack = new WebClient(process.env.SLACK_TOKEN);
+            await slack.chat.postMessage({ channel: channelId, text: msg, mrkdwn: true });
+            logs.push(`✅ [${team}] 팀 채널로 발송 완료! (대상: ${names})`);
+          }
+          sentCount++;
+        } catch(e: any) { logs.push(`❌ [${team}] 발송 오류: ${e.message}`); }
+      }
+
+      resultData.type = "team";
+      resultData.targets = teamGroups.size;
+      resultData.sent = sentCount;
+      resultData.preview = logs.length > 0 ? logs.join("\n") : `오전 ${refHhMm} 기준, 모든 대상자가 출근을 완료했습니다. ✨`;
     }
 
     await pool.query("UPDATE t_secom_trigger SET last_run = CURRENT_TIMESTAMP WHERE id = ?", [id]);
-    return NextResponse.json({ success: true, targets: targets.length, sent: successCount });
+    return NextResponse.json(resultData);
 
   } catch (err: any) {
     console.error("[Trigger Run] Error:", err.message);

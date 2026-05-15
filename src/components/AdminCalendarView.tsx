@@ -11,6 +11,11 @@ export interface AdminDailyCount {
   checkOuts: number;
   lates: number;
   absents: number;
+  target?: number;
+  vacation?: number;
+  off?: number;
+  missing?: number;
+  beforeWork?: number;
 }
 
 interface AdminCalendarViewProps {
@@ -85,7 +90,7 @@ export function AdminCalendarView({ data, onDateSelect, selectedDate, currentMon
         days.push(
           <div
             className={cn(
-              "min-h-[110px] border border-transparent p-2 flex flex-col cursor-pointer transition-all rounded-2xl select-none relative group",
+              "min-h-[160px] border border-transparent p-2 flex flex-col cursor-pointer transition-all rounded-2xl select-none relative group",
               !isCurrentMonth ? "opacity-30 pointer-events-none" : "",
               isSelected ? "bg-orange-50 border-orange-200 ring-2 ring-orange-100 ring-offset-2" : "hover:bg-gray-50 border-gray-100 bg-white",
             )}
@@ -100,41 +105,49 @@ export function AdminCalendarView({ data, onDateSelect, selectedDate, currentMon
               )}>
                 {formattedDate}
               </span>
+              {(dayData?.target !== undefined) && (
+                <span className="text-[9px] font-black text-gray-400 bg-gray-50 px-1.5 py-0.5 rounded-lg border border-gray-100">
+                  T {dayData.target}
+                </span>
+              )}
             </div>
             
-            {dayData && (dayData.checkIns > 0 || dayData.checkOuts > 0 || dayData.lates > 0 || dayData.absents > 0) && (
-              <div className="mt-auto flex flex-col gap-1 w-full pl-1">
-                {dayData.checkIns > 0 && (
-                  <div className="flex items-center text-[12px] font-bold text-emerald-600 bg-emerald-50/50 rounded px-1.5 py-0.5">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1.5"></span>
-                    출근 {dayData.checkIns}
-                  </div>
-                )}
-                {dayData.checkOuts > 0 && (
-                  <div className="flex items-center text-[12px] font-bold text-blue-600 bg-blue-50/50 rounded px-1.5 py-0.5">
-                    <span className="w-1.5 h-1.5 rounded-full bg-blue-500 mr-1.5"></span>
-                    퇴근 {dayData.checkOuts}
-                  </div>
-                )}
-                {dayData.lates > 0 && (
-                  <div className="flex items-center text-[12px] font-bold text-orange-600 bg-orange-50/50 rounded px-1.5 py-0.5">
-                    <span className="w-1.5 h-1.5 rounded-full bg-orange-500 mr-1.5"></span>
-                    지각 {dayData.lates}
-                  </div>
-                )}
-                {dayData.absents > 0 && (
-                  <div className="flex items-center text-[12px] font-bold text-red-600 bg-red-50/50 rounded px-1.5 py-0.5">
-                    <span className="w-1.5 h-1.5 rounded-full bg-red-500 mr-1.5"></span>
-                    결근 {dayData.absents}
-                  </div>
-                )}
-              </div>
-            )}
-            {!dayData && isCurrentMonth && day <= new Date() && ( i !== 0 && i !== 6) && (
-              <div className="mt-auto flex items-center justify-center text-[11px] font-medium text-gray-300 py-1">
-                데이터 없음
-              </div>
-            )}
+            <div className="mt-auto flex flex-col gap-0.5 w-full">
+              {dayData && (
+                <>
+                  {dayData.checkIns > 0 && (
+                    <div className="flex items-center justify-between text-[10px] font-bold text-emerald-600 bg-emerald-50/30 rounded px-1.5 py-0.5">
+                      <span>출근</span>
+                      <span>{dayData.checkIns}</span>
+                    </div>
+                  )}
+                  {(dayData.missing || 0) > 0 && (
+                    <div className="flex items-center justify-between text-[10px] font-bold text-red-600 bg-red-50/30 rounded px-1.5 py-0.5">
+                      <span>지각/누락</span>
+                      <span>{dayData.missing}</span>
+                    </div>
+                  )}
+                  {(dayData.beforeWork || 0) > 0 && (
+                    <div className="flex items-center justify-between text-[10px] font-bold text-blue-600 bg-blue-50/30 rounded px-1.5 py-0.5">
+                      <span>출근 전</span>
+                      <span>{dayData.beforeWork}</span>
+                    </div>
+                  )}
+                  {(dayData.off || 0) > 0 && (
+                    <div className="flex items-center justify-between text-[10px] font-bold text-slate-500 bg-slate-100/50 rounded px-1.5 py-0.5">
+                      <span>휴무</span>
+                      <span>{dayData.off}</span>
+                    </div>
+                  )}
+                  {(dayData.vacation || 0) > 0 && (
+                    <div className="flex items-center justify-between text-[10px] font-bold text-purple-600 bg-purple-50/30 rounded px-1.5 py-0.5">
+                      <span>휴가</span>
+                      <span>{dayData.vacation}</span>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
           </div>
         );
         day = addDays(day, 1);
