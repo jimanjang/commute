@@ -21,7 +21,8 @@ import {
   Edit2,
   ChevronLeft,
   Send,
-  Mail
+  Mail,
+  Download
 } from "lucide-react";
 
 import Link from "next/link";
@@ -68,10 +69,21 @@ function DashboardContent() {
   const [editUser, setEditUser] = useState<any>(null);
   const [isTestingBot, setIsTestingBot] = useState(false);
   const [testTargetEmail, setTestTargetEmail] = useState("laika@daangnservice.com");
+  const [isDownloadModalOpen, setIsDownloadModalOpen] = useState(false);
+  const [downloadStartDate, setDownloadStartDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+  const [downloadEndDate, setDownloadEndDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const searchParams = useSearchParams();
   const router = useRouter();
   const userName = searchParams.get("name") || "전체";
   const targetDateParam = searchParams.get("date");
+
+  const handleDownloadCSV = () => {
+    if (!downloadStartDate || !downloadEndDate) return;
+    const startFormatted = downloadStartDate.replace(/-/g, '');
+    const endFormatted = downloadEndDate.replace(/-/g, '');
+    window.location.href = `/api/admin/download?startDate=${startFormatted}&endDate=${endFormatted}`;
+    setIsDownloadModalOpen(false);
+  };
 
   const handleTestBot = async (type: 'checkin' | 'reminder') => {
     setIsTestingBot(true);
@@ -160,6 +172,13 @@ function DashboardContent() {
             <p className="text-sm text-gray-400 font-bold mt-1">실시간 전사 출퇴근 데이터 및 통계를 확인합니다.</p>
           </div>
           <div className="flex items-center space-x-3">
+             <button 
+               onClick={() => setIsDownloadModalOpen(true)}
+               className="px-4 py-2 bg-indigo-50 border border-indigo-100 rounded-2xl shadow-sm text-xs font-black text-indigo-600 flex items-center space-x-1.5 hover:bg-indigo-100 transition-colors"
+             >
+                <Download className="w-4 h-4" />
+                <span>기록 다운로드</span>
+             </button>
              <div className="px-4 py-2 bg-white border border-gray-100 rounded-2xl shadow-sm text-xs font-black text-gray-400 uppercase tracking-widest">
                 Real-time Sync
              </div>
@@ -358,6 +377,67 @@ function DashboardContent() {
             onSuccess={() => fetchData()}
           />
         )}
+
+        {/* Download Modal */}
+        {isDownloadModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setIsDownloadModalOpen(false)} />
+            <div className="relative bg-white w-full max-w-sm rounded-[24px] shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+              <div className="p-6">
+                <div className="flex items-center space-x-3 mb-6">
+                  <div className="w-10 h-10 bg-indigo-100 rounded-2xl flex items-center justify-center text-indigo-600">
+                    <Download className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-black text-slate-800">기록 다운로드</h3>
+                    <p className="text-xs font-bold text-gray-400">조회할 날짜를 선택해주세요.</p>
+                  </div>
+                </div>
+                
+                <div className="space-y-4">
+                  <div className="flex items-center space-x-2">
+                    <div className="flex-1 space-y-1">
+                      <label className="text-[10px] font-bold text-gray-500 uppercase">시작 날짜</label>
+                      <input 
+                        type="date" 
+                        value={downloadStartDate}
+                        onChange={(e) => setDownloadStartDate(e.target.value)}
+                        className="w-full bg-slate-50 border border-slate-100 rounded-xl px-3 py-2 text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-100 transition-all text-slate-700"
+                      />
+                    </div>
+                    <span className="text-gray-300 mt-5 font-bold">~</span>
+                    <div className="flex-1 space-y-1">
+                      <label className="text-[10px] font-bold text-gray-500 uppercase">종료 날짜</label>
+                      <input 
+                        type="date" 
+                        value={downloadEndDate}
+                        onChange={(e) => setDownloadEndDate(e.target.value)}
+                        className="w-full bg-slate-50 border border-slate-100 rounded-xl px-3 py-2 text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-100 transition-all text-slate-700"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="p-4 border-t border-gray-100 bg-gray-50/50 flex space-x-2">
+                <button 
+                  onClick={() => setIsDownloadModalOpen(false)}
+                  className="flex-1 py-2.5 text-sm font-bold text-gray-500 hover:text-gray-700 transition-colors"
+                >
+                  취소
+                </button>
+                <button 
+                  onClick={handleDownloadCSV}
+                  disabled={!downloadStartDate || !downloadEndDate}
+                  className="flex-1 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-black shadow-md hover:bg-indigo-700 disabled:opacity-50 transition-all"
+                >
+                  다운로드
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
 
       </div>
     );
