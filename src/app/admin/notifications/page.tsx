@@ -907,19 +907,26 @@ export default function NotificationsPage() {
                          </div>
                        </td>
                        <td className="px-8 py-4">
-                          <div className={cn(
-                            "inline-flex items-center px-2 py-0.5 rounded text-[10px] font-black tracking-tight",
-                            log.status === 'success' ? "bg-emerald-50 text-emerald-600" : "bg-red-50 text-red-600"
-                          )}>
-                             {log.status === 'success' ? <CheckCircle2 className="w-3 h-3 mr-1" /> : <AlertTriangle className="w-3 h-3 mr-1" />}
-                             {log.status === 'success' ? "성공" : "실패"}
-                          </div>
-                       </td>
-                       <td className="px-8 py-4 text-right">
-                          <span className="text-[11px] text-gray-400 font-medium">
-                             {log.status === 'failure' ? log.error_message : (log.notify_type === 'checkin' ? "출근 확인" : "리마인더")}
-                          </span>
-                       </td>
+                           {log.trigger_name === 'manual_dismiss' ? (
+                             <div className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-black tracking-tight bg-slate-100 text-slate-600 border border-slate-200">
+                               <XCircle className="w-3 h-3 mr-1" />
+                               <span>제외됨</span>
+                             </div>
+                           ) : (
+                             <div className={cn(
+                               "inline-flex items-center px-2 py-0.5 rounded text-[10px] font-black tracking-tight",
+                               log.status === 'success' ? "bg-emerald-50 text-emerald-600" : "bg-red-50 text-red-600"
+                             )}>
+                                {log.status === 'success' ? <CheckCircle2 className="w-3 h-3 mr-1" /> : <AlertTriangle className="w-3 h-3 mr-1" />}
+                                {log.status === 'success' ? "성공" : "실패"}
+                             </div>
+                           )}
+                        </td>
+                        <td className="px-8 py-4 text-right">
+                           <span className="text-[11px] text-gray-400 font-medium">
+                              {log.trigger_name === 'manual_dismiss' ? "사용자 제외" : (log.status === 'failure' ? log.error_message : (log.notify_type === 'checkin' ? "출근 확인" : "리마인더"))}
+                           </span>
+                        </td>
                      </tr>
                    ))}
                  </tbody>
