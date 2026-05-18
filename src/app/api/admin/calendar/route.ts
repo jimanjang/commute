@@ -21,7 +21,7 @@ export async function GET(request: Request) {
       WHERE WorkGroup IN ('002', '006', '007') 
         AND Name IS NOT NULL AND Name != '' AND Name != '미등록사용자'
     `;
-    const [rosterRows] = await bigquery.query({ query: rosterQuery, location: 'asia-northeast3' });
+    const [rosterRows] = await bigquery.query({ query: rosterQuery });
     const rosterNames = rosterRows.map((r: any) => r.Name);
     const rosterNamesQuoted = rosterNames.map((n: any) => `'${n.replace(/'/g, "\\'")}'`).join(',');
 
@@ -41,7 +41,7 @@ export async function GET(request: Request) {
         )
       ) WHERE rn = 1
     `;
-    const [historyRows] = await bigquery.query({ query: historyQuery, params: { dbYearMonth }, location: 'asia-northeast3' });
+    const [historyRows] = await bigquery.query({ query: historyQuery, params: { dbYearMonth } });
     const historyMap = new Map();
     historyRows.forEach((h: any) => historyMap.set(`${h.Name}|${h.WorkDate}`, h));
 

@@ -34,8 +34,7 @@ export async function GET(request: Request) {
       ORDER BY p.Name ASC
     `;
     const [bqRows] = await bigquery.query({ 
-      query: bqQuery,
-      location: 'asia-northeast3'
+      query: bqQuery
     });
 
     // 2. Get Bridge (Name -> Email, Team, Department) from MySQL

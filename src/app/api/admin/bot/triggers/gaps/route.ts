@@ -41,8 +41,8 @@ export async function GET(request: Request) {
       const [alreadySentRows]: any = await pool.query(
         `SELECT sabun FROM t_secom_trigger_log 
          WHERE trigger_id = ? AND notify_type = 'checkin' AND status = 'success'
-         AND DATE(CONVERT_TZ(created_at, '+00:00', '+09:00')) = ?`,
-        [trigger.id, todayStr]
+         AND created_at >= ?`,
+        [trigger.id, `${todayStr} 00:00:00`]
       );
       const alreadySent = new Set(alreadySentRows.map((r: any) => r.sabun));
 
@@ -110,8 +110,8 @@ export async function POST(request: Request) {
     const [existingLogs]: any = await pool.query(
       `SELECT id FROM t_secom_trigger_log 
        WHERE trigger_id = ? AND sabun = ? AND notify_type = 'checkin'
-       AND DATE(CONVERT_TZ(created_at, '+00:00', '+09:00')) = ?`,
-      [trigger_id, sabun, todayStr]
+       AND created_at >= ?`,
+      [trigger_id, sabun, `${todayStr} 00:00:00`]
     );
 
     if (existingLogs.length > 0) {
@@ -147,8 +147,8 @@ export async function DELETE(request: Request) {
     const [existingLogs]: any = await pool.query(
       `SELECT id FROM t_secom_trigger_log 
        WHERE trigger_id = ? AND sabun = ? AND notify_type = 'checkin'
-       AND DATE(CONVERT_TZ(created_at, '+00:00', '+09:00')) = ?`,
-      [trigger_id, sabun, todayStr]
+       AND created_at >= ?`,
+      [trigger_id, sabun, `${todayStr} 00:00:00`]
     );
 
     if (existingLogs.length > 0) {

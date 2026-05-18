@@ -37,7 +37,7 @@ export async function POST(request: Request) {
 
     // 3. Roster & Maps
     const rosterQuery = `SELECT Name as name, Sabun as sabun, Team as team, WorkGroup as workGroup FROM \`secom-data.secom.person\` WHERE Name IS NOT NULL AND Name != '' AND WorkGroup IN ('002', '006', '007')`;
-    const [rosterRows] = await bigquery.query({ query: rosterQuery, location: 'asia-northeast3' });
+    const [rosterRows] = await bigquery.query({ query: rosterQuery });
 
     const [bridgeRows]: any = await pool.query("SELECT Name, Email, Sabun FROM t_secom_person WHERE Email IS NOT NULL AND Email != ''");
     const sabunToEmail = new Map();
@@ -128,8 +128,8 @@ export async function POST(request: Request) {
       const [notifiedRows]: any = await pool.query(
         `SELECT sabun FROM t_secom_trigger_log 
          WHERE trigger_id = ? AND notify_type = 'checkin' AND status = 'success'
-         AND DATE(CONVERT_TZ(created_at, '+00:00', '+09:00')) = ?`,
-        [id, todayStr]
+         AND created_at >= ?`,
+        [id, `${todayStr} 00:00:00`]
       );
       const notifiedSabuns = new Set(notifiedRows.map((r: any) => r.sabun));
 

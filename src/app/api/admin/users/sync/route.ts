@@ -77,7 +77,7 @@ export async function GET() {
           UPDATE SET t.Email = s.email, t.UpdateTime = FORMAT_TIMESTAMP('%Y-%m-%d %H:%M:%S', CURRENT_TIMESTAMP())
       `;
       try {
-        const [job1] = await bigquery.createQueryJob({ query: mergeEmailBySabun, location: 'asia-northeast3' });
+        const [job1] = await bigquery.createQueryJob({ query: mergeEmailBySabun });
         await job1.getQueryResults();
       } catch (bqErr: any) {
         console.warn("[Sync GWS] BigQuery MERGE email by Sabun failed (free-tier billing limit):", bqErr.message);
@@ -106,7 +106,7 @@ export async function GET() {
           UPDATE SET t.Email = s.email, t.UpdateTime = FORMAT_TIMESTAMP('%Y-%m-%d %H:%M:%S', CURRENT_TIMESTAMP())
       `;
       try {
-        const [job2] = await bigquery.createQueryJob({ query: mergeEmailByName, location: 'asia-northeast3' });
+        const [job2] = await bigquery.createQueryJob({ query: mergeEmailByName });
         await job2.getQueryResults();
       } catch (bqErr: any) {
         console.warn("[Sync GWS] BigQuery MERGE email by Name failed (free-tier billing limit):", bqErr.message);
@@ -136,7 +136,7 @@ export async function GET() {
           UPDATE SET t.Team = s.team, t.UpdateTime = FORMAT_TIMESTAMP('%Y-%m-%d %H:%M:%S', CURRENT_TIMESTAMP())
       `;
       try {
-        const [job3] = await bigquery.createQueryJob({ query: mergeTeamBySabun, location: 'asia-northeast3' });
+        const [job3] = await bigquery.createQueryJob({ query: mergeTeamBySabun });
         await job3.getQueryResults();
       } catch (bqErr: any) {
         console.warn("[Sync GWS] BigQuery MERGE team by Sabun failed (free-tier billing limit):", bqErr.message);
@@ -164,7 +164,7 @@ export async function GET() {
           UPDATE SET t.Team = s.team, t.UpdateTime = FORMAT_TIMESTAMP('%Y-%m-%d %H:%M:%S', CURRENT_TIMESTAMP())
       `;
       try {
-        const [job4] = await bigquery.createQueryJob({ query: mergeTeamByName, location: 'asia-northeast3' });
+        const [job4] = await bigquery.createQueryJob({ query: mergeTeamByName });
         await job4.getQueryResults();
       } catch (bqErr: any) {
         console.warn("[Sync GWS] BigQuery MERGE team by Name failed (free-tier billing limit):", bqErr.message);
