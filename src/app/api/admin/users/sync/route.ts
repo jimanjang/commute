@@ -3,86 +3,169 @@ import { getBigQueryClient } from "@/lib/bigquery-oauth";
 import { getGwsUserMap } from "@/lib/gws-team";
 import pool from "@/lib/mysql";
 
+function getCleanName(name: string) {
+  if (!name) return "";
+  let clean = name.split('(')[0].trim().toLowerCase();
+  return clean.split(' ')[0].trim();
+}
+
 export async function GET() {
   try {
-    console.log("[Sync GWS] Fetching bridge data from MySQL...");
-    const [personRows]: any = await pool.query("SELECT Name, Email, Sabun FROM t_secom_person WHERE Email IS NOT NULL AND Email != ''");
+    console.log("[Sync GWS] Fetching all bridge records from MySQL...");
+    const [personRows]: any = await pool.query("SELECT Name, Email, Sabun, Team FROM t_secom_person");
     
     console.log("[Sync GWS] Fetching data from Google Workspace Admin SDK...");
     const gwsMap = await getGwsUserMap();
     
-    // Using Maps to ensure uniqueness by target key (sabun or name)
-    const sabunMap = new Map<string, string>();
-    const nameMap = new Map<string, string>();
+    const emailUpdatesBySabun: { sabun: string; email: string }[] = [];
+    const emailUpdatesByName: { name: string; email: string }[] = [];
+    
+    const teamUpdatesBySabun: { sabun: string; team: string }[] = [];
+    const teamUpdatesByName: { name: string; team: string }[] = [];
     
     let matchedCount = 0;
 
     for (const p of personRows) {
-      const mysqlEmail = p.Email.toLowerCase().trim();
+      const mysqlEmail = p.Email?.toLowerCase().trim() || "";
       const mysqlId = mysqlEmail.split('@')[0];
+      const cleanName = getCleanName(p.Name);
       
-      const gwsInfo = gwsMap.get(mysqlEmail) || gwsMap.get(mysqlId);
+      // Try to find GWS info by email, clean name, or email prefix
+      const gwsInfo = gwsMap.get(mysqlEmail) || gwsMap.get(cleanName) || gwsMap.get(mysqlId);
 
-      if (gwsInfo && gwsInfo.team) {
-        if (p.Sabun && p.Sabun.trim() !== "") {
-          sabunMap.set(p.Sabun, gwsInfo.team);
-        } else if (p.Name) {
-          nameMap.set(p.Name, gwsInfo.team);
-        }
+      if (gwsInfo) {
         matchedCount++;
+        
+        // 1. Check if Email needs update
+        if (gwsInfo.email && mysqlEmail !== gwsInfo.email.toLowerCase().trim()) {
+          if (p.Sabun && p.Sabun.trim() !== "") {
+            emailUpdatesBySabun.push({ sabun: p.Sabun, email: gwsInfo.email });
+          } else if (p.Name) {
+            emailUpdatesByName.push({ name: p.Name, email: gwsInfo.email });
+          }
+        }
+
+        // 2. Check if Team needs update
+        if (gwsInfo.team && p.Team !== gwsInfo.team) {
+          if (p.Sabun && p.Sabun.trim() !== "") {
+            teamUpdatesBySabun.push({ sabun: p.Sabun, team: gwsInfo.team });
+          } else if (p.Name) {
+            teamUpdatesByName.push({ name: p.Name, team: gwsInfo.team });
+          }
+        }
       }
     }
 
-    const updateBySabun = Array.from(sabunMap.entries()).map(([sabun, team]) => ({ sabun, team }));
-    const updateByName = Array.from(nameMap.entries()).map(([name, team]) => ({ name, team }));
-
-    console.log(`[Sync GWS] Matched ${matchedCount} users. Unique updates: ${updateBySabun.length} by Sabun, ${updateByName.length} by Name.`);
-
-    if (updateBySabun.length === 0 && updateByName.length === 0) {
-      return NextResponse.json({ success: true, count: 0, message: "No matching users found." });
-    }
+    console.log(`[Sync GWS] Matched ${matchedCount} users.`);
+    console.log(`[Sync GWS] Queued email updates: ${emailUpdatesBySabun.length + emailUpdatesByName.length}`);
+    console.log(`[Sync GWS] Queued team updates: ${teamUpdatesBySabun.length + teamUpdatesByName.length}`);
 
     const bigquery = await getBigQueryClient();
 
-    // 1. Sync by Sabun (Primary)
-    if (updateBySabun.length > 0) {
-      const mergeBySabun = `
+    // 1. Sync Emails to BigQuery & Local MySQL
+    if (emailUpdatesBySabun.length > 0) {
+      const mergeEmailBySabun = `
+        MERGE \`secom-data.secom.person\` t
+        USING (
+          SELECT DISTINCT sabun, email FROM UNNEST([
+            STRUCT<sabun STRING, email STRING>
+            ${emailUpdatesBySabun.map(u => `('${u.sabun}', '${u.email}')`).join(', ')}
+          ])
+        ) s
+        ON t.Sabun = s.sabun
+        WHEN MATCHED THEN
+          UPDATE SET t.Email = s.email, t.UpdateTime = FORMAT_TIMESTAMP('%Y-%m-%d %H:%M:%S', CURRENT_TIMESTAMP())
+      `;
+      const [job1] = await bigquery.createQueryJob({ query: mergeEmailBySabun, location: 'asia-northeast3' });
+      await job1.getQueryResults();
+
+      for (const u of emailUpdatesBySabun) {
+        const timeStr = new Date().toISOString().slice(0, 19).replace(/[-T:]/g, "");
+        await pool.query(
+          "UPDATE t_secom_person SET Email = ?, UpdateTime = ? WHERE Sabun = ?",
+          [u.email, timeStr, u.sabun]
+        );
+      }
+    }
+
+    if (emailUpdatesByName.length > 0) {
+      const mergeEmailByName = `
+        MERGE \`secom-data.secom.person\` t
+        USING (
+          SELECT DISTINCT name, email FROM UNNEST([
+            STRUCT<name STRING, email STRING>
+            ${emailUpdatesByName.map(u => `('${u.name.replace(/'/g, "''")}', '${u.email}')`).join(', ')}
+          ])
+        ) s
+        ON t.Name = s.name
+        WHEN MATCHED THEN
+          UPDATE SET t.Email = s.email, t.UpdateTime = FORMAT_TIMESTAMP('%Y-%m-%d %H:%M:%S', CURRENT_TIMESTAMP())
+      `;
+      const [job2] = await bigquery.createQueryJob({ query: mergeEmailByName, location: 'asia-northeast3' });
+      await job2.getQueryResults();
+
+      for (const u of emailUpdatesByName) {
+        const timeStr = new Date().toISOString().slice(0, 19).replace(/[-T:]/g, "");
+        await pool.query(
+          "UPDATE t_secom_person SET Email = ?, UpdateTime = ? WHERE Name = ?",
+          [u.email, timeStr, u.name]
+        );
+      }
+    }
+
+    // 2. Sync Team Names to BigQuery & Local MySQL
+    if (teamUpdatesBySabun.length > 0) {
+      const mergeTeamBySabun = `
         MERGE \`secom-data.secom.person\` t
         USING (
           SELECT DISTINCT sabun, team FROM UNNEST([
             STRUCT<sabun STRING, team STRING>
-            ${updateBySabun.map(u => `('${u.sabun}', '${(u.team || '').replace(/'/g, "''")}')`).join(', ')}
+            ${teamUpdatesBySabun.map(u => `('${u.sabun}', '${(u.team || '').replace(/'/g, "''")}')`).join(', ')}
           ])
         ) s
         ON t.Sabun = s.sabun
         WHEN MATCHED THEN
           UPDATE SET t.Team = s.team, t.UpdateTime = FORMAT_TIMESTAMP('%Y-%m-%d %H:%M:%S', CURRENT_TIMESTAMP())
       `;
-      const [job1] = await bigquery.createQueryJob({ query: mergeBySabun, location: 'asia-northeast3' });
-      await job1.getQueryResults();
+      const [job3] = await bigquery.createQueryJob({ query: mergeTeamBySabun, location: 'asia-northeast3' });
+      await job3.getQueryResults();
+
+      for (const u of teamUpdatesBySabun) {
+        await pool.query(
+          "UPDATE t_secom_person SET Team = ? WHERE Sabun = ?",
+          [u.team, u.sabun]
+        );
+      }
     }
 
-    // 2. Sync by Name (Fallback for missing Sabuns)
-    if (updateByName.length > 0) {
-      const mergeByName = `
+    if (teamUpdatesByName.length > 0) {
+      const mergeTeamByName = `
         MERGE \`secom-data.secom.person\` t
         USING (
           SELECT DISTINCT name, team FROM UNNEST([
             STRUCT<name STRING, team STRING>
-            ${updateByName.map(u => `('${u.name.replace(/'/g, "''")}', '${(u.team || '').replace(/'/g, "''")}')`).join(', ')}
+            ${teamUpdatesByName.map(u => `('${u.name.replace(/'/g, "''")}', '${(u.team || '').replace(/'/g, "''")}')`).join(', ')}
           ])
         ) s
         ON t.Name = s.name
         WHEN MATCHED AND (t.Team IS NULL OR t.Team = "") THEN
           UPDATE SET t.Team = s.team, t.UpdateTime = FORMAT_TIMESTAMP('%Y-%m-%d %H:%M:%S', CURRENT_TIMESTAMP())
       `;
-      const [job2] = await bigquery.createQueryJob({ query: mergeByName, location: 'asia-northeast3' });
-      await job2.getQueryResults();
+      const [job4] = await bigquery.createQueryJob({ query: mergeTeamByName, location: 'asia-northeast3' });
+      await job4.getQueryResults();
+
+      for (const u of teamUpdatesByName) {
+        await pool.query(
+          "UPDATE t_secom_person SET Team = ? WHERE Name = ? AND (Team IS NULL OR Team = '')",
+          [u.team, u.name]
+        );
+      }
     }
 
     return NextResponse.json({
       success: true,
-      count: updateBySabun.length + updateByName.length,
+      emails_synced: emailUpdatesBySabun.length + emailUpdatesByName.length,
+      teams_synced: teamUpdatesBySabun.length + teamUpdatesByName.length,
       synced_at: new Date().toISOString()
     });
 

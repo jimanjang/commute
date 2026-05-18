@@ -10,11 +10,8 @@ async function main() {
   });
 
   try {
-    const [logs] = await pool.query(
-      "SELECT * FROM t_secom_trigger_log WHERE DATE(created_at) = '2026-05-18' ORDER BY created_at DESC LIMIT 50"
-    );
-    console.log("Trigger Logs for today:", logs.length);
-    console.log(logs);
+    const [triggers] = await pool.query("SELECT * FROM t_secom_trigger");
+    console.log(triggers);
   } catch (err) {
     console.error(err);
   } finally {

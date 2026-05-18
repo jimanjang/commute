@@ -122,12 +122,55 @@ export async function POST(request: Request) {
       if (triggerTargets.size > 0) {
         checkinToday = checkinToday.filter(u => triggerTargets.has(u.sabun?.trim()));
       }
-      resultData.targets = checkinToday.length;
-      resultData.totalPeople = checkinToday.length;
-      resultData.preview = checkinToday.length > 0 
-        ? `(샘플) ${checkinToday[0].name}님, 출근 확인되었습니다! (${checkinToday[0].checkIn})`
-        : "지정한 대상자 중 오늘 출근한 인원이 아직 없습니다.";
-      resultData.sent = checkinToday.length; 
+
+      // Get already notified sabuns today
+      const todayStr = getTodayStr();
+      const [notifiedRows]: any = await pool.query(
+        `SELECT sabun FROM t_secom_trigger_log 
+         WHERE trigger_id = ? AND notify_type = 'checkin' AND status = 'success'
+         AND DATE(CONVERT_TZ(created_at, '+00:00', '+09:00')) = ?`,
+        [id, todayStr]
+      );
+      const notifiedSabuns = new Set(notifiedRows.map((r: any) => r.sabun));
+
+      const pendingUsers = checkinToday.filter(u => !notifiedSabuns.has(u.sabun));
+
+      let sentCount = 0;
+      let logs = [];
+
+      for (const u of pendingUsers) {
+        if (!u.email) continue;
+
+        try {
+          if (isDryRun) {
+            logs.push(`🔍 [DRY RUN - 실시간출근] ${u.name}님 알림 발송 생략 (${u.checkIn})`);
+          } else {
+            await sendSlackBotNotification(u.email, 'checkin', { time: u.checkIn, name: u.name });
+            logs.push(`✅ [실시간출근] ${u.name}님에게 알림 전송 완료! (${u.checkIn})`);
+          }
+
+          await pool.query(
+            "INSERT INTO t_secom_trigger_log (trigger_id, trigger_name, sabun, name, email, notify_type, status) VALUES (?, ?, ?, ?, ?, 'checkin', 'success')",
+            [id, trigger.function_name, u.sabun || '', u.name, u.email]
+          );
+          sentCount++;
+        } catch (err: any) {
+          console.error(`[Realtime Sync] Error (${u.name}):`, err);
+          await pool.query(
+            "INSERT INTO t_secom_trigger_log (trigger_id, trigger_name, sabun, name, email, notify_type, status, error_message) VALUES (?, ?, ?, ?, ?, 'checkin', 'failure', ?)",
+            [id, trigger.function_name, u.sabun || '', u.name, u.email, err.message]
+          );
+        }
+      }
+
+      resultData.type = "individual";
+      resultData.targets = pendingUsers.length;
+      resultData.sent = sentCount;
+      resultData.preview = logs.length > 0 
+        ? logs.join("\n") 
+        : (checkinToday.length > 0 
+            ? `오늘 출근한 ${checkinToday.length}명은 이미 알림이 전송되었거나 제외되었습니다.` 
+            : "오늘 새로 출근이 감지되어 알림을 전송할 대상자가 없습니다.");
     }
 
     else if (trigger.function_name.startsWith('send_slack_summary')) {
@@ -169,15 +212,15 @@ export async function POST(request: Request) {
 
       resultData.totalPeople = missingUsers.length;
 
-      const teamGroups = new Map();
+      const teamGroups = new Map<string, any[]>();
       missingUsers.forEach(u => {
         const t = u.team || "기타";
         if (!teamGroups.has(t)) teamGroups.set(t, []);
-        teamGroups.get(t).push(u);
+        teamGroups.get(t)!.push(u);
       });
 
       const [channels]: any = await pool.query("SELECT team_name, channel_id FROM t_secom_slack_channel WHERE is_active = 1");
-      const teamMap = new Map(channels.map((c: any) => [c.team_name, c.channel_id]));
+      const teamMap = new Map<string, string>(channels.map((c: any) => [c.team_name, c.channel_id]));
 
       let sentCount = 0;
       let logs = [];

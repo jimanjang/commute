@@ -59,7 +59,7 @@ function DashboardContent() {
   const [currentViewMonth, setCurrentViewMonth] = useState<Date>(new Date()); 
   const [data, setData] = useState<AttendanceRecord[]>([]);
   const [allUsersData, setAllUsersData] = useState<any[]>([]);
-  const [filterType, setFilterType] = useState<'all' | 'present' | 'lateMissing' | 'modified'>('all');
+  const [filterType, setFilterType] = useState<'all' | 'present' | 'lateMissing' | 'modified' | 'beforeWork' | 'off' | 'vacation'>('all');
   const [adminCalendarData, setAdminCalendarData] = useState<AdminDailyCount[]>([]);
   const [summaryStats, setSummaryStats] = useState<any>({
     totalMember: 0,

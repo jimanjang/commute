@@ -1,26 +1,31 @@
-const { BigQuery } = require('@google-cloud/bigquery');
-const { OAuth2Client } = require('google-auth-library');
-const fs = require('fs');
-const path = require('path');
+const mysql = require('mysql2/promise');
 
-const CLIENT_ID = '32555940559.apps.googleusercontent.com';
-const CLIENT_SECRET = 'ZmssLNjJy2998hD4CTg2ejr2';
-
-async function run() {
-  const tokenPath = path.join(process.cwd(), 'token.json');
-  const tokens = JSON.parse(fs.readFileSync(tokenPath, 'utf8'));
-  const oauth2Client = new OAuth2Client(CLIENT_ID, CLIENT_SECRET);
-  oauth2Client.setCredentials(tokens);
-  const bq = new BigQuery({ projectId: 'karrotmarket', authClient: oauth2Client });
+async function main() {
+  const pool = mysql.createPool({
+    host: '172.17.3.206',
+    user: 'secom',
+    password: 'secom123',
+    database: 'secom',
+    port: 3306
+  });
 
   try {
-    const [tables] = await bq.dataset('db_karrot_cs_kr').getTables();
-    console.log('Tables in db_karrot_cs_kr:', tables.map(t => t.id).join(', '));
-    
-    const [tables2] = await bq.dataset('team_operation').getTables();
-    console.log('Tables in team_operation:', tables2.map(t => t.id).join(', '));
+    const [tables] = await pool.query("SHOW TABLES");
+    console.log("Tables in database:", tables);
+
+    for (const t of tables) {
+      const tableName = Object.values(t)[0];
+      const [columns] = await pool.query(`SHOW COLUMNS FROM ${tableName}`);
+      console.log(`\nColumns in ${tableName}:`);
+      console.log(columns.map(c => c.Field));
+    }
+
   } catch (err) {
-    console.error(err.message);
+    console.error("Error:", err);
+  } finally {
+    await pool.end();
+    process.exit();
   }
 }
-run();
+
+main();

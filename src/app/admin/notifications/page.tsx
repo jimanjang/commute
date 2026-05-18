@@ -284,6 +284,25 @@ export default function NotificationsPage() {
     }
   };
 
+  const handleDeleteGap = async (gap: any) => {
+    if (!confirm(`${gap.name}님의 누락 알림 건을 목록에서 제외(삭제)하시겠습니까?`)) return;
+    try {
+      const res = await fetch('/api/admin/bot/triggers/gaps', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(gap)
+      });
+      if (res.ok) {
+        alert("목록에서 제외했습니다.");
+        fetchGaps();
+      } else {
+        alert("목록 제외 실패");
+      }
+    } catch (err) {
+      alert("목록 제외 중 오류 발생");
+    }
+  };
+
   // Manual Filter
   const targetUsers = users.filter(u => 
     u.status === "지각" || u.status === "미출근" || u.status === "결근"
@@ -692,13 +711,22 @@ export default function NotificationsPage() {
                           </div>
                         </td>
                         <td className="px-8 py-4 text-right">
-                          <button 
-                            onClick={() => handleRetryGap(gap)}
-                            className="px-4 py-2 bg-indigo-600 text-white text-[11px] font-black rounded-xl shadow-md shadow-indigo-100 flex items-center space-x-2 hover:bg-indigo-700 transition-all ml-auto"
-                          >
-                            <Send className="w-3 h-3" />
-                            <span>재발송</span>
-                          </button>
+                          <div className="flex items-center justify-end space-x-2">
+                            <button 
+                              onClick={() => handleRetryGap(gap)}
+                              className="px-4 py-2 bg-indigo-600 text-white text-[11px] font-black rounded-xl shadow-md shadow-indigo-100 flex items-center space-x-1.5 hover:bg-indigo-700 hover:shadow-indigo-200 transition-all active:scale-95"
+                            >
+                              <Send className="w-3 h-3" />
+                              <span>재발송</span>
+                            </button>
+                            <button 
+                              onClick={() => handleDeleteGap(gap)}
+                              className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all active:scale-95"
+                              title="목록에서 제외"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}

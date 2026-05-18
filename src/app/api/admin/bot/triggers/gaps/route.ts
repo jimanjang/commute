@@ -132,3 +132,40 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
+
+export async function DELETE(request: Request) {
+  try {
+    const { trigger_id, sabun, name, email } = await request.json();
+    if (!trigger_id || !sabun) {
+      return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
+    }
+
+    const kstNow = getKstDate();
+    const todayStr = kstNow.toISOString().split('T')[0];
+
+    // Check if there was an existing log today
+    const [existingLogs]: any = await pool.query(
+      `SELECT id FROM t_secom_trigger_log 
+       WHERE trigger_id = ? AND sabun = ? AND notify_type = 'checkin'
+       AND DATE(CONVERT_TZ(created_at, '+00:00', '+09:00')) = ?`,
+      [trigger_id, sabun, todayStr]
+    );
+
+    if (existingLogs.length > 0) {
+      await pool.query(
+        `UPDATE t_secom_trigger_log SET status = 'success', error_message = '사용자 제외' WHERE id = ?`,
+        [existingLogs[0].id]
+      );
+    } else {
+      await pool.query(
+        "INSERT INTO t_secom_trigger_log (trigger_id, trigger_name, sabun, name, email, notify_type, status, error_message) VALUES (?, ?, ?, ?, ?, ?, 'success', '사용자 제외')",
+        [trigger_id, 'manual_dismiss', sabun, name || '', email || '', 'checkin']
+      );
+    }
+
+    return NextResponse.json({ success: true });
+  } catch (error: any) {
+    console.error("[Manual Dismiss] Error:", error.message);
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+}

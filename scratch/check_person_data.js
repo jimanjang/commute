@@ -1,32 +1,40 @@
 const { BigQuery } = require('@google-cloud/bigquery');
 const { OAuth2Client } = require('google-auth-library');
 const fs = require('fs');
-const path = require('path');
-
-const CLIENT_ID = '32555940559.apps.googleusercontent.com';
-const CLIENT_SECRET = 'ZmssLNjJy2998hD4CTg2ejr2';
-
-async function getBigQueryClient() {
-  const tokenPath = path.join(process.cwd(), 'token.json');
-  const tokens = JSON.parse(fs.readFileSync(tokenPath, 'utf8'));
-  const oauth2Client = new OAuth2Client(CLIENT_ID, CLIENT_SECRET);
-  oauth2Client.setCredentials(tokens);
-  return new BigQuery({
-    projectId: 'karrotmarket',
-    authClient: oauth2Client
-  });
-}
 
 async function main() {
-  const bigquery = await getBigQueryClient();
+  const tokens = JSON.parse(fs.readFileSync('C:/Users/당근서비스/.antigravity/secom-admin/commute/token.json', 'utf8'));
+  const oauth2Client = new OAuth2Client('32555940559.apps.googleusercontent.com', 'ZmssLNjJy2998hD4CTg2ejr2');
+  oauth2Client.setCredentials(tokens);
+  const bq = new BigQuery({ projectId: 'karrotmarket', authClient: oauth2Client });
 
-  const query = 'SELECT Name, Sabun, Department, Team FROM `secom-data.secom.person` WHERE Name IS NOT NULL LIMIT 10';
-  const [rows] = await bigquery.query({ query, location: 'asia-northeast3' });
+  try {
+    console.log("--- Unique WorkGroups in BigQuery ---");
+    const [wgRows] = await bq.query({
+      query: "SELECT WorkGroup, COUNT(*) as cnt FROM `secom-data.secom.person` GROUP BY WorkGroup",
+      location: 'asia-northeast3'
+    });
+    console.log(wgRows);
 
-  console.log('Sample from secom.person:');
-  rows.forEach(r => {
-    console.log(`Name: ${r.Name}, Team: "${r.Team}", Dept: "${r.Department}"`);
-  });
+    console.log("\n--- Unique Teams in BigQuery ---");
+    const [teamRows] = await bq.query({
+      query: "SELECT Team, Department, COUNT(*) as cnt FROM `secom-data.secom.person` GROUP BY Team, Department LIMIT 20",
+      location: 'asia-northeast3'
+    });
+    console.log(teamRows);
+
+    console.log("\n--- Sample Roster Data (First 10) ---");
+    const [sampleRows] = await bq.query({
+      query: "SELECT Name, Sabun, Department, Team, WorkGroup FROM `secom-data.secom.person` LIMIT 10",
+      location: 'asia-northeast3'
+    });
+    console.log(sampleRows);
+
+  } catch (err) {
+    console.error("Error checking BQ:", err);
+  } finally {
+    process.exit();
+  }
 }
 
-main().catch(console.error);
+main();
