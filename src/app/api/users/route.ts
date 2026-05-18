@@ -38,10 +38,16 @@ export async function GET(request: Request) {
       location: 'asia-northeast3'
     });
 
-    // 2. Get Bridge (Name -> Email) from MySQL
-    const [personRows]: any = await pool.query("SELECT Name, Email FROM t_secom_person WHERE Email IS NOT NULL AND Email != ''");
+    // 2. Get Bridge (Name -> Email, Team, Department) from MySQL
+    const [personRows]: any = await pool.query("SELECT Name, Email, Team, Department FROM t_secom_person");
     const nameToEmail = new Map();
-    personRows.forEach((p: any) => nameToEmail.set(p.Name, p.Email.toLowerCase()));
+    const nameToTeam = new Map();
+    const nameToDept = new Map();
+    personRows.forEach((p: any) => {
+      if (p.Email) nameToEmail.set(p.Name, p.Email.toLowerCase());
+      if (p.Team) nameToTeam.set(p.Name, p.Team);
+      if (p.Department) nameToDept.set(p.Name, p.Department);
+    });
 
     // 3. Get Schedules from MySQL
     const targetDateStr = dateParam || getTodayStr();
@@ -115,6 +121,8 @@ export async function GET(request: Request) {
         name: r.name,
         displayName,
         email,
+        team: r.team || nameToTeam.get(r.name) || "",
+        department: r.department || nameToDept.get(r.name) || "",
         checkIn: formatTime(r.checkIn),
         checkOut: formatTime(r.checkOut),
         status,

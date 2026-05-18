@@ -163,6 +163,8 @@ async function runMirroring() {
         // [출근 등록] - 첫 태깅은 시간에 무관하게 무조건 출근
         console.log(`[\x1b[32m${nowTimeStr}\x1b[0m] 🆕 [출근 감지] ${alarm.Name}(${sabun})님 출근 기록 생성: ${alarmTime}`);
         
+        const truncate = (val) => val ? String(val).substring(0, 3) : '';
+
         await connection.query(
           `INSERT INTO t_secom_workhistory (
             WorkDate, CardNo, CardFullData, JuminNo, Name, Sabun,
@@ -171,7 +173,7 @@ async function runMirroring() {
           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, ?, NULL, 0, 0, ?)`,
           [
             todayStr, alarm.CardNo, alarm.CardFullData, alarm.JuminNo, alarm.Name, alarm.Sabun,
-            alarm.Company, alarm.Department, alarm.Team, alarm.Part, alarm.Grade, alarm.DetailGrade,
+            truncate(alarm.Company), truncate(alarm.Department), truncate(alarm.Team), truncate(alarm.Part), truncate(alarm.Grade), truncate(alarm.DetailGrade),
             alarmTime, nowTimeStr
           ]
         );

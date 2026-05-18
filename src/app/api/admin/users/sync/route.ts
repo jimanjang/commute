@@ -76,8 +76,12 @@ export async function GET() {
         WHEN MATCHED THEN
           UPDATE SET t.Email = s.email, t.UpdateTime = FORMAT_TIMESTAMP('%Y-%m-%d %H:%M:%S', CURRENT_TIMESTAMP())
       `;
-      const [job1] = await bigquery.createQueryJob({ query: mergeEmailBySabun, location: 'asia-northeast3' });
-      await job1.getQueryResults();
+      try {
+        const [job1] = await bigquery.createQueryJob({ query: mergeEmailBySabun, location: 'asia-northeast3' });
+        await job1.getQueryResults();
+      } catch (bqErr: any) {
+        console.warn("[Sync GWS] BigQuery MERGE email by Sabun failed (free-tier billing limit):", bqErr.message);
+      }
 
       for (const u of emailUpdatesBySabun) {
         const timeStr = new Date().toISOString().slice(0, 19).replace(/[-T:]/g, "");
@@ -101,8 +105,12 @@ export async function GET() {
         WHEN MATCHED THEN
           UPDATE SET t.Email = s.email, t.UpdateTime = FORMAT_TIMESTAMP('%Y-%m-%d %H:%M:%S', CURRENT_TIMESTAMP())
       `;
-      const [job2] = await bigquery.createQueryJob({ query: mergeEmailByName, location: 'asia-northeast3' });
-      await job2.getQueryResults();
+      try {
+        const [job2] = await bigquery.createQueryJob({ query: mergeEmailByName, location: 'asia-northeast3' });
+        await job2.getQueryResults();
+      } catch (bqErr: any) {
+        console.warn("[Sync GWS] BigQuery MERGE email by Name failed (free-tier billing limit):", bqErr.message);
+      }
 
       for (const u of emailUpdatesByName) {
         const timeStr = new Date().toISOString().slice(0, 19).replace(/[-T:]/g, "");
@@ -127,8 +135,12 @@ export async function GET() {
         WHEN MATCHED THEN
           UPDATE SET t.Team = s.team, t.UpdateTime = FORMAT_TIMESTAMP('%Y-%m-%d %H:%M:%S', CURRENT_TIMESTAMP())
       `;
-      const [job3] = await bigquery.createQueryJob({ query: mergeTeamBySabun, location: 'asia-northeast3' });
-      await job3.getQueryResults();
+      try {
+        const [job3] = await bigquery.createQueryJob({ query: mergeTeamBySabun, location: 'asia-northeast3' });
+        await job3.getQueryResults();
+      } catch (bqErr: any) {
+        console.warn("[Sync GWS] BigQuery MERGE team by Sabun failed (free-tier billing limit):", bqErr.message);
+      }
 
       for (const u of teamUpdatesBySabun) {
         await pool.query(
@@ -151,8 +163,12 @@ export async function GET() {
         WHEN MATCHED AND (t.Team IS NULL OR t.Team = "") THEN
           UPDATE SET t.Team = s.team, t.UpdateTime = FORMAT_TIMESTAMP('%Y-%m-%d %H:%M:%S', CURRENT_TIMESTAMP())
       `;
-      const [job4] = await bigquery.createQueryJob({ query: mergeTeamByName, location: 'asia-northeast3' });
-      await job4.getQueryResults();
+      try {
+        const [job4] = await bigquery.createQueryJob({ query: mergeTeamByName, location: 'asia-northeast3' });
+        await job4.getQueryResults();
+      } catch (bqErr: any) {
+        console.warn("[Sync GWS] BigQuery MERGE team by Name failed (free-tier billing limit):", bqErr.message);
+      }
 
       for (const u of teamUpdatesByName) {
         await pool.query(
