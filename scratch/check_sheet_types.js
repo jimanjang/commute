@@ -1,21 +1,23 @@
-const { BigQuery } = require('@google-cloud/bigquery');
-const fs = require('fs');
-const { OAuth2Client } = require('google-auth-library');
+import pymysql
 
-async function run() {
-  const tokens = JSON.parse(fs.readFileSync('token.json', 'utf8'));
-  const oauth2Client = new OAuth2Client('32555940559.apps.googleusercontent.com', 'ZmssLNjJy2998hD4CTg2ejr2');
-  oauth2Client.setCredentials(tokens);
-  const bq = new BigQuery({ projectId: 'karrotmarket', authClient: oauth2Client });
-  
-  try {
-    const [rows] = await bq.query({ 
-      query: 'SELECT sheet_type, description FROM `karrotmarket.team_operation.utility_time_sheets_sheet_type` ORDER BY sheet_type', 
-      location: 'US' 
-    });
-    console.log(JSON.stringify(rows, null, 2));
-  } catch (e) {
-    console.error(e);
-  }
-}
-run();
+try:
+    conn = pymysql.connect(host='172.17.3.206', user='secom', password='secom123', db='secom')
+    cursor = conn.cursor()
+    
+    cursor.execute("SELECT DISTINCT sheet_type, sheet_type_description FROM t_secom_schedule")
+    rows = cursor.fetchall()
+    print("--- Sheet Types in t_secom_schedule ---")
+    for r in rows:
+        # decode korean if needed
+        desc = r[1]
+        try:
+            desc_decoded = desc.decode('utf-8')
+        except:
+            try:
+                desc_decoded = desc.decode('cp949')
+            except:
+                desc_decoded = str(desc)
+        print(f"Type: {r[0]}, Desc: {desc_decoded}")
+        
+except Exception as e:
+    print(f"Error: {e}")
