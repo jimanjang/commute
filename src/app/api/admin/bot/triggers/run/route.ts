@@ -177,12 +177,41 @@ export async function POST(request: Request) {
       const stats = {
         target: usersWithStatus.filter(u => u.status !== "휴가" && u.status !== "-").length,
         checkin: usersWithStatus.filter(u => u.status === "출근" || u.status === "지각").length,
-        missing: usersWithStatus.filter(u => u.status === "미출근" || u.status === "지각").length
+        missing: usersWithStatus.filter(u => u.status === "미출근" || u.status === "지각").length,
+        beforeWork: usersWithStatus.filter(u => u.status === "출근 전").length,
+        off: usersWithStatus.filter(u => u.status === "-").length,
+        vacation: usersWithStatus.filter(u => u.status === "휴가").length
       };
+
+      const missingNames = usersWithStatus.filter(u => u.status === "미출근" || u.status === "지각").map(u => u.name).join(", ");
+      const beforeWorkNames = usersWithStatus.filter(u => u.status === "출근 전").map(u => u.name).join(", ");
+      const offNames = usersWithStatus.filter(u => u.status === "-").map(u => u.name).join(", ");
+      const vacationNames = usersWithStatus.filter(u => u.status === "휴가").map(u => u.name).join(", ");
+
+      const summaryMsg = `📢 [근태 요약 리포트] ${todayStr}
+
+• 출근 대상: ${stats.target}명
+• 출근 완료: ${stats.checkin}명
+• 지각/누락: ${stats.missing}명
+• 출근 전: ${stats.beforeWork}명
+• 휴무: ${stats.off}명
+• 휴가: ${stats.vacation}명
+
+📍 지각/누락 명단:
+${missingNames || "없음"}
+
+📍 출근 전 명단:
+${beforeWorkNames || "없음"}
+
+📍 휴무 명단:
+${offNames || "없음"}
+
+📍 휴가 명단:
+${vacationNames || "없음"}`;
+
       resultData.type = "summary";
       resultData.targets = 1;
       resultData.totalPeople = stats.target;
-      const summaryMsg = `📢 [근태 요약 리포트 (기준시각: ${refHhMm})]\n• 출근 대상: ${stats.target}명\n• 출근 완료: ${stats.checkin}명\n• 지각/누락: ${stats.missing}명\n... (상세 명단 포함)`;
       resultData.preview = isDryRun ? `[DRY RUN] ${summaryMsg}` : summaryMsg;
       
       let receivers = [];
