@@ -7,12 +7,76 @@ import { getKstDate, getTodayStr } from "@/lib/time";
 export async function POST(request: Request) {
   try {
     const { id } = await request.json();
-    const isDryRun = process.env.DRY_RUN === 'true';
     
     // 1. Get Trigger Info
     const [rows]: any = await pool.query("SELECT * FROM t_secom_trigger WHERE id = ?", [id]);
     if (rows.length === 0) return NextResponse.json({ error: "Trigger not found" }, { status: 404 });
     const trigger = rows[0];
+
+    const isDryRunGlobal = process.env.DRY_RUN === 'true';
+    const isCircuitBroken = Number(trigger.circuit_dry_run) === 1;
+    let isDryRun = isDryRunGlobal || isCircuitBroken;
+
+    // Helper functions for Circuit Breaker
+    const checkAndTriggerCircuitBreaker = async (sabun?: string) => {
+      if (isDryRun) return false;
+
+      try {
+        // 1. Check individual threshold (3 within 1 minute)
+        if (sabun) {
+          const [indRows]: any = await pool.query(
+            `SELECT COUNT(*) as cnt FROM t_secom_trigger_log 
+             WHERE sabun = ? AND status = 'success' AND created_at >= NOW() - INTERVAL 1 MINUTE`,
+            [sabun]
+          );
+          if (indRows[0].cnt >= 3) {
+            console.warn(`[CIRCUIT BREAKER] Individual threshold exceeded for sabun: ${sabun} (${indRows[0].cnt} >= 3)`);
+            await triggerCircuit("individual", sabun, indRows[0].cnt);
+            return true;
+          }
+        }
+
+        // 2. Check global threshold (20 within 1 minute) - only for batch/summary (not REALTIME_CHECKIN)
+        if (trigger.time_type !== 'REALTIME_CHECKIN') {
+          const [globRows]: any = await pool.query(
+            `SELECT COUNT(*) as cnt FROM t_secom_trigger_log 
+             WHERE status = 'success' AND created_at >= NOW() - INTERVAL 1 MINUTE`
+          );
+          if (globRows[0].cnt >= 20) {
+            console.warn(`[CIRCUIT BREAKER] Global threshold exceeded (${globRows[0].cnt} >= 20)`);
+            await triggerCircuit("global", undefined, globRows[0].cnt);
+            return true;
+          }
+        }
+      } catch (cbErr: any) {
+        console.error("[CIRCUIT BREAKER] Detection failed:", cbErr.message);
+      }
+      return false;
+    };
+
+    const triggerCircuit = async (type: string, details?: string, count?: number) => {
+      isDryRun = true;
+      try {
+        // Force circuit_dry_run = 1 in DB
+        await pool.query("UPDATE t_secom_trigger SET circuit_dry_run = 1 WHERE id = ?", [id]);
+        console.log(`[CIRCUIT BREAKER] circuit_dry_run activated in DB for trigger ID: ${id}`);
+
+        // Async Slack DM alert to laika@daangnservice.com
+        const alertMsg = `🚨 *[근태 알림 서킷 브레이커 작동 경보]*
+
+최근 1분간 특정 사용자 혹은 전사 알림의 발송 빈도가 비정상적으로 급증하는 *이상 징후*가 감지되었습니다. 추가 스팸 방지를 위해 전체 실시간 근태 알림 시스템을 *[드라이런(Dry Run)]* 모드로 자동 강제 전환했습니다.
+
+• *감지 유형*: ${type === "individual" ? `개별 사용자 알림 과다 (${details}님 대상 1분간 ${count}회)` : `전사 알림 과다 (1분간 누적 ${count}회)`}
+• *조치 사항*: 전체 알림 채널 실시간 차단 완료 (드라이런 가동 중)
+• *확인 필요*: 데이터베이스 로그 및 어드민 대시보드 상태를 즉시 점검해 주세요.`;
+
+        sendSlackDMByEmail('laika@daangnservice.com', alertMsg).catch(err => {
+          console.error("[CIRCUIT BREAKER] Failed to notify administrator laika@daangnservice.com:", err.message);
+        });
+      } catch (dbErr: any) {
+        console.error("[CIRCUIT BREAKER] Failed to persist circuit breaker state:", dbErr.message);
+      }
+    };
 
     const [targetRows]: any = await pool.query("SELECT sabun FROM t_secom_trigger_target WHERE trigger_id = ?", [id]);
     const triggerTargets = new Set(targetRows.map((t: any) => t.sabun?.trim()));
@@ -142,6 +206,10 @@ export async function POST(request: Request) {
         if (!u.email) continue;
 
         try {
+          if (await checkAndTriggerCircuitBreaker(u.sabun)) {
+            isDryRun = true;
+          }
+
           if (isDryRun) {
             logs.push(`🔍 [DRY RUN - 실시간출근] ${u.name}님 알림 발송 생략 (${u.checkIn})`);
           } else {
@@ -219,6 +287,10 @@ ${vacationNames || "없음"}`;
       let sentCount = 0;
       for (const r of receivers) {
         try {
+          if (await checkAndTriggerCircuitBreaker()) {
+            isDryRun = true;
+          }
+
           if (!isDryRun) {
             if (r.type === 'user') {
               const email = sabunToEmail.get(r.value);
@@ -262,6 +334,10 @@ ${vacationNames || "없음"}`;
         }
         const msg = `<!channel> 앗! 아직 오늘 출근 지문이 확인되지 않은 분들이 있어요 🙌 (기준: ${refHhMm})\n• 대상자: ${names}`;
         try {
+          if (await checkAndTriggerCircuitBreaker()) {
+            isDryRun = true;
+          }
+
           if (isDryRun) {
             logs.push(`🔍 [DRY RUN - ${team}] 슬랙 발송 생략 (대상: ${names})`);
           } else {
