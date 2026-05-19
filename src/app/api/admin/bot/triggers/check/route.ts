@@ -30,7 +30,9 @@ export async function GET() {
       }
 
       // Check if already run today
-      const lastRunDate = trigger.last_run ? format(new Date(trigger.last_run), "yyyy-MM-dd") : "";
+      // The database is in KST but mysql2 uses 'timezone: Z', parsing KST as UTC.
+      // We use toISOString().split('T')[0] to obtain the stored yyyy-MM-dd value without KST/UTC shifting.
+      const lastRunDate = trigger.last_run ? new Date(trigger.last_run).toISOString().split('T')[0] : "";
       const alreadyRunToday = lastRunDate === todayStr;
 
       if (trigger.time_type === 'SPECIFIC_TIME' || trigger.time_type === 'TEAM_CHANNEL_CHECKIN') {
